@@ -1,0 +1,13 @@
+
+supabase/mysql-secrets.env
+
+.dart_tool/
+build/
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example
+*secrets.env
+*.log
+*.zip

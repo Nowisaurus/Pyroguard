@@ -1,0 +1,23 @@
+[functions.mysql-history]
+verify_jwt = false
+
+
+[functions.device-command]
+verify_jwt = false
+
+
+[functions.fire-alert]
+verify_jwt = false
+
+[functions.bootstrap-admins]
+verify_jwt = false
+
+
+[functions.register-account]
+verify_jwt = false
+
+[functions.sync-outbox]
+verify_jwt = false
+
+[functions.admin-console]
+verify_jwt = false

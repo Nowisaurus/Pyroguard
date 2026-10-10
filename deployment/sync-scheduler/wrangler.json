@@ -1,0 +1,1 @@
+{"name":"pyroguard-sync-scheduler","main":"index.ts","compatibility_date":"2026-10-09","triggers":{"crons":["* * * * *"]},"vars":{"SUPABASE_URL":"https://torzyarstitxsreoqcig.supabase.co"}}

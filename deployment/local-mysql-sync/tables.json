@@ -1,0 +1,127 @@
+[
+  {
+    "source": "admin_accounts",
+    "target": "pyroguard_admin_accounts",
+    "key": "id"
+  },
+  {
+    "source": "profiles",
+    "target": "pyroguard_profiles",
+    "key": "id"
+  },
+  {
+    "source": "account_identities",
+    "target": "pyroguard_account_identities",
+    "key": "user_id"
+  },
+  {
+    "source": "homes",
+    "target": "pyroguard_homes",
+    "key": "id"
+  },
+  {
+    "source": "stakeholders",
+    "target": "pyroguard_stakeholders",
+    "key": "id"
+  },
+  {
+    "source": "emergency_contacts",
+    "target": "pyroguard_emergency_contacts",
+    "key": "id"
+  },
+  {
+    "source": "safety_setups",
+    "target": "pyroguard_safety_setups",
+    "key": "id"
+  },
+  {
+    "source": "user_preferences",
+    "target": "pyroguard_user_preferences",
+    "key": "id"
+  },
+  {
+    "source": "devices",
+    "target": "pyroguard_devices",
+    "key": "id"
+  },
+  {
+    "source": "device_current_state",
+    "target": "pyroguard_device_current_state",
+    "key": "id"
+  },
+  {
+    "source": "device_heartbeats",
+    "target": "pyroguard_device_heartbeats",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_camera_telemetry",
+    "target": "pyroguard_pyroguard_camera_telemetry",
+    "key": "id"
+  },
+  {
+    "source": "system_state",
+    "target": "pyroguard_system_state",
+    "key": "id"
+  },
+  {
+    "source": "device_commands",
+    "target": "pyroguard_device_commands",
+    "key": "id"
+  },
+  {
+    "source": "ptz_state",
+    "target": "pyroguard_ptz_state",
+    "key": "id"
+  },
+  {
+    "source": "ptz_commands",
+    "target": "pyroguard_ptz_commands",
+    "key": "id"
+  },
+  {
+    "source": "sensor_history",
+    "target": "pyroguard_sensor_history",
+    "key": "id"
+  },
+  {
+    "source": "event_history",
+    "target": "pyroguard_event_history",
+    "key": "id"
+  },
+  {
+    "source": "camera_history",
+    "target": "pyroguard_camera_history",
+    "key": "id"
+  },
+  {
+    "source": "camera_events",
+    "target": "pyroguard_camera_events",
+    "key": "id"
+  },
+  {
+    "source": "audio_sessions",
+    "target": "pyroguard_audio_sessions",
+    "key": "id"
+  },
+  {
+    "source": "mirror_records",
+    "target": "pyroguard_mirror_records",
+    "key": "id"
+  },
+  {
+    "source": "dual_record_ledger",
+    "target": "pyroguard_dual_record_ledger",
+    "key": "id"
+  },
+  {
+    "source": "emergency_action_logs",
+    "target": "pyroguard_emergency_action_logs",
+    "key": "id"
+  },
+  {
+    "source": "sensor_readings",
+    "target": "pyroguard_sensor_readings",
+    "key": "id"
+  }
+]
