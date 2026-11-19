@@ -290,15 +290,35 @@ if (import.meta.main) Deno.serve(async (req) => {
     // 2) room readings
     const roomResults: Record<string, string> = {}
     for (const r of rooms) {
-      const { data: last, error: lastError } = await db.from('pyroguard_room_sensor_readings')
-        .select('received_at,smoke_status,flame_detected,buzzer_active')
+      let { data: last, error: lastError } = await db.from('pyroguard_room_sensor_readings')
+        .select('received_at,smoke_status,flame_detected,buzzer_active,smoke_raw,fire_confirmed,flame_fault,smoke_fault')
         .eq('controller_device_id', controller).eq('room_key', r.room)
         .order('received_at', { ascending: false }).limit(1).maybeSingle()
+      // Before the 20261104b migration the safety columns do not exist yet.
+      if (lastError && missingColumn(lastError.message)) {
+        ({ data: last, error: lastError } = await db.from('pyroguard_room_sensor_readings')
+          .select('received_at,smoke_status,flame_detected,buzzer_active')
+          .eq('controller_device_id', controller).eq('room_key', r.room)
+          .order('received_at', { ascending: false }).limit(1).maybeSingle())
+      }
       if (lastError) throw new Error(`room read: ${lastError.message}`)
+      const fireNow = r.fire_confirmed === null ? null : roomOnFire(r)
+      const prev = (last ?? {}) as Record<string, unknown>
+      // A confirmed fire, or a sensor fault, appearing/clearing is a change too
+      // (before, flame -> confirmed fire 2 s later was skipped as "recent").
       const changed = !last || last.smoke_status !== r.smoke_status ||
-        last.flame_detected !== r.flame_detected || last.buzzer_active !== r.buzzer_active
+        last.flame_detected !== r.flame_detected || last.buzzer_active !== r.buzzer_active ||
+        ('fire_confirmed' in prev && (prev.fire_confirmed ?? null) !== fireNow) ||
+        ('flame_fault' in prev && (prev.flame_fault ?? null) !== (r.flame_fault ?? null)) ||
+        ('smoke_fault' in prev && (prev.smoke_fault ?? null) !== (r.smoke_fault ?? null)) ||
+        // gas level moved noticeably (MQ-2 analog mV, firmware v11+)
+        (typeof prev.smoke_raw === 'number' && r.smoke_raw !== null && Math.abs(prev.smoke_raw - r.smoke_raw) >= 40) ||
+        ('smoke_raw' in prev && ((prev.smoke_raw ?? null) === null) !== (r.smoke_raw === null))
       const lastAt = last ? Date.parse(String(last.received_at)) : 0
-      if (!changed && now - lastAt < ROOM_MIN_GAP_MS) { roomResults[r.room] = 'recent'; continue }
+      // While a room is on fire every upload is stored (min 2 s apart), so the
+      // app's "two successive confirmed readings" rule is met within seconds.
+      const minGap = fireNow === true ? 2_000 : ROOM_MIN_GAP_MS
+      if (!changed && now - lastAt < minGap) { roomResults[r.room] = 'recent'; continue }
       const base = {
         user_id: ownerId, controller_device_id: controller, room_key: r.room,
         temperature: r.temperature, humidity: r.humidity, smoke_raw: r.smoke_raw,
