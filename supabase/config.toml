@@ -1,0 +1,60 @@
+[functions.mysql-history]
+verify_jwt = false
+
+
+[functions.device-command]
+verify_jwt = false
+
+
+[functions.sensor-ingest]
+verify_jwt = false
+
+[functions.fire-alert]
+verify_jwt = false
+
+[functions.bootstrap-admins]
+verify_jwt = false
+
+
+[functions.register-account]
+verify_jwt = false
+
+[functions.sync-outbox]
+verify_jwt = false
+
+[functions.admin-console]
+verify_jwt = false
+
+# 2026-11-19: camera uploads (no user token) and the database webhook
+[functions.camera-ingest]
+verify_jwt = false
+
+[functions.incident-email]
+verify_jwt = false
+
+# Local Supabase Auth configuration. Hosted dashboard settings must be updated separately.
+[auth]
+site_url = "https://pyroguard-web-blue.vercel.app/"
+additional_redirect_urls = ["https://pyroguard-web-blue.vercel.app/", "https://pyroguard-web-blue.vercel.app/reset-password", "io.supabase.flutter://callback", "http://localhost:3000"]
+[auth.email]
+enable_confirmations = true
+[auth.email.template.confirmation]
+subject = "Confirm your PyroGuard account"
+content_path = "./templates/confirm_signup.html"
+
+[auth.email.template.magic_link]
+subject = "Your PyroGuard sign-in code"
+content_path = "./templates/reauth_email.html"
+
+# Google / Facebook sign-in for LOCAL development only. On the hosted project set
+# them in Dashboard > Authentication > Sign In / Providers (see SETUP_GUIDE.md).
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
+
+[auth.external.facebook]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_FACEBOOK_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_FACEBOOK_SECRET)"

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="PyroGuard - Real-time home monitoring and security system">
+  <meta name="theme-color" content="#7A1F1F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="PyroGuard">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <title>PyroGuard - Home Monitoring & Security</title>
+  <style>
+    body { background-color: #0D0D0D; margin: 0; }
+    #loading {
+      position: fixed; inset: 0; background: #0D0D0D;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 9999;
+    }
+    #loading .logo {
+      width: 88px; height: 88px; border-radius: 22px;
+      background-image: url('icons/Icon-512.png');
+      background-size: cover; background-position: center;
+      box-shadow: 0 0 40px rgba(249, 115, 22, 0.35), 0 0 0 1px rgba(255,255,255,0.08);
+      animation: pulse 1.1s ease-in-out infinite alternate;
+    }
+    #loading .txt  { color: #F97316; font-family: sans-serif; font-size: 14px;
+                     font-weight: 700; margin-top: 18px; letter-spacing: 2px; }
+    #loading .sub  { color: #ffffff66; font-family: sans-serif; font-size: 11px;
+                     margin-top: 6px; letter-spacing: 1px; }
+    @keyframes pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(1.08); opacity: 0.85; } }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="logo"></div>
+    <div class="txt">PYROGUARD</div>
+    <div class="sub">HOME MONITORING &amp; SECURITY</div>
+  </div>
+  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      var l = document.getElementById('loading');
+      if (l) l.style.display = 'none';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "pyroguard-local-mysql-sync",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file=.env worker.mjs",
+    "once": "node --env-file=.env worker.mjs --once",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
+    "mysql2": "3.24.5"
+  }
+}

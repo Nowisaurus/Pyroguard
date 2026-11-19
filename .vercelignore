@@ -1,0 +1,14 @@
+build/
+.dart_tool/
+flutter/
+node_modules/
+firmware/
+database/
+deployment/
+docs/
+android/
+ios/
+macos/
+linux/
+windows/
+*.zip

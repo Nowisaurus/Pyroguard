@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "mysql2/promise": "npm:mysql2@3.15.2/promise"
+  }
+}
