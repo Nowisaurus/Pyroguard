@@ -74,10 +74,16 @@ class _PyroguardSafetyPanelState extends State<PyroguardSafetyPanel> {
   Widget build(BuildContext context) {
     final primary = AppTheme.textPrimary(context);
     final secondary = AppTheme.textSecondary(context);
-    return GlassPanel(
+    // Plain solid box, NOT a GlassPanel: this sits inside the settings card,
+    // which is already a blurred glass panel, and a blur inside a blur renders
+    // washed-out with ghost text on Flutter web.
+    return Container(
       padding: const EdgeInsets.all(16),
-      borderColor: AppColors.orange.withValues(alpha: .25),
-      tint: AppTheme.isDark(context) ? AppColors.darkCard.withValues(alpha: .7) : AppColors.lightCard.withValues(alpha: .82),
+      decoration: BoxDecoration(
+        color: AppTheme.isDark(context) ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.orange.withValues(alpha: .35)),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Notification Level & Daily Summary', style: TextStyle(color: primary, fontWeight: FontWeight.w800, fontSize: 16)),
         const SizedBox(height: 6),
@@ -85,17 +91,43 @@ class _PyroguardSafetyPanelState extends State<PyroguardSafetyPanel> {
         if (loading || saving) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator(color: AppColors.orange)),
         if (!loading) ...[
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: ['all', 'important', 'critical'].contains(mode) ? mode : 'important',
-            dropdownColor: AppTheme.card(context),
-            style: TextStyle(color: primary),
-            decoration: InputDecoration(labelText: 'Notification level', labelStyle: TextStyle(color: secondary), border: const OutlineInputBorder()),
-            items: const [
-              DropdownMenuItem(value: 'all', child: Text('All sensor activity')),
-              DropdownMenuItem(value: 'important', child: Text('Important incidents')),
-              DropdownMenuItem(value: 'critical', child: Text('Critical emergencies')),
-            ],
-            onChanged: saving ? null : (v) { if (v != null) _save(nextMode: v); },
+          // Always-visible choice chips instead of a pop-up dropdown: the
+          // pop-up list rendered see-through over the page and was unreadable.
+          Text('Notification level', style: TextStyle(color: secondary, fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final o in const [
+              ('all', 'All sensor activity', Icons.sensors_rounded),
+              ('important', 'Important incidents', Icons.warning_amber_rounded),
+              ('critical', 'Critical emergencies', Icons.local_fire_department_rounded),
+            ])
+              Builder(builder: (context) {
+                final current = ['all', 'important', 'critical'].contains(mode) ? mode : 'important';
+                final selected = current == o.$1;
+                return ChoiceChip(
+                  avatar: Icon(o.$3, size: 18, color: selected ? Colors.white : AppColors.orange),
+                  label: Text(o.$2),
+                  selected: selected,
+                  showCheckmark: false,
+                  selectedColor: AppColors.orange,
+                  backgroundColor: AppTheme.isDark(context) ? AppColors.darkCard : Colors.white,
+                  side: BorderSide(color: selected ? AppColors.orange : AppColors.orange.withValues(alpha: .45)),
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : primary,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  onSelected: saving || selected ? null : (_) => _save(nextMode: o.$1),
+                );
+              }),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            switch (['all', 'important', 'critical'].contains(mode) ? mode : 'important') {
+              'all' => 'You get alerts for every sensor change, warnings and incidents.',
+              'critical' => 'Only critical emergencies (confirmed fire, intrusion while armed).',
+              _ => 'Warnings, intrusions and incidents; routine sensor changes are skipped.',
+            },
+            style: TextStyle(color: secondary, fontSize: 12),
           ),
           Material(type: MaterialType.transparency, child: SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
