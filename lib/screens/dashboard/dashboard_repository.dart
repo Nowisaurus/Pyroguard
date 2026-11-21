@@ -91,7 +91,7 @@ class DashboardRepository {
         (id: secondaryId, room: 'kitchen'), (id: secondaryId, room: 'bedroom'),
       ])
         _safeRows(() => db.from('pyroguard_room_sensor_readings')
-            .select('controller_device_id,room_key,temperature,humidity,smoke_status,flame_detected,buzzer_active,sampled_at,received_at')
+            .select('controller_device_id,room_key,temperature,humidity,smoke_status,flame_detected,buzzer_active,fire_confirmed,flame_fault,smoke_fault,sampled_at,received_at')
             .eq('controller_device_id', group.id).eq('room_key', group.room)
             .order('received_at', ascending:false).limit(1), '${group.id}/${group.room}'),
     ]);

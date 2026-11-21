@@ -55,17 +55,21 @@ class RoomSensorService extends ChangeNotifier {
     if (!fresh(device, room)) return 'NO FRESH DATA';
     final record = reading(device, room);
     final v = record?[field];
-    // The MQ-2 is wired to its digital DO pin, so there is never an analog
-    // smoke_raw value. Show what the sensor actually reports instead of
-    // "NOT REPORTED".
-    if (field == 'smoke_raw' && v == null) {
-      return switch ('${record?['smoke_status'] ?? ''}'.toUpperCase()) {
+        // MQ-2 gas level: firmware v11+ sends the analog reading in mV;
+    // older firmware sends only the status.
+    if (field == 'smoke_raw') {
+      final status = switch ('${record?['smoke_status'] ?? ''}'.toUpperCase()) {
         'ALARM' => 'GAS DETECTED',
         'CLEAR' => 'NO GAS',
-        'WARMUP' => 'WARMING UP (3 MIN)',
+        'WARMUP' => 'WARMING UP',
         'FAULT' => 'SENSOR FAULT',
         _ => 'NOT REPORTED',
       };
+           // ~140 mV at the ESP32 = 0 V: the MQ-2 signal is not reaching the board.
+      if (v is num && v < 250 && status == 'SENSOR FAULT') {
+        return 'NO SIGNAL (0 V) • check MQ-2 wire / 5V';
+      }
+      return v is num ? '${v.round()} mV • $status' : status;
     }
     if (v == null) return 'NOT REPORTED';
     if (field == 'buzzer_active' && v is bool) return v ? 'ON' : 'OFF';

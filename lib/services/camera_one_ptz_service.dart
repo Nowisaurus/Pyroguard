@@ -328,6 +328,11 @@ class CameraOnePtzService extends ChangeNotifier {
         case 429:
           message = null; // a previous jog is still being delivered
           return false;
+                case 502:
+          // Camera 1 reached ESP32-001 but the board did not accept the move
+          // (rebooting / Wi-Fi blip). Send the same move through Supabase.
+          controllerLinked = false;
+          return await _cloudFallback(action, step, record);
         case 503:
           controllerLinked = false;
           message = body['error'] == 'controller_not_linked'
@@ -340,14 +345,29 @@ class CameraOnePtzService extends ChangeNotifier {
               '(HTTP ${body['controller_http'] ?? response.statusCode}).';
           return false;
       }
-    } catch (e) {
+        } catch (e) {
+      // Timeout / network changed / camera offline: try the cloud route.
       cameraReachable = false;
-      message = 'Camera 1 not reachable at $_cameraIp.';
-      return false;
+      return _cloudFallback(action, step, record);
     } finally {
       sending = false;
       _notify();
     }
+  }
+
+  /// Used when the direct (LAN) route fails: queue the move for ESP32-001 in
+  /// Supabase instead. Hold-repeats and "stop" are skipped on this route.
+  Future<bool> _cloudFallback(String action, int? step, bool record) async {
+    if (!record && action != 'stop') return false;
+    if (action == 'stop') return true;
+    final ok = await _cloudCommand(action, step);
+    if (ok) {
+      message = 'Direct link busy; move sent through the cloud (about 2 s).';
+      if (record) unawaited(_recordCommand(action));
+    } else {
+      message ??= 'Camera 1 not reachable at $_cameraIp, and the cloud route failed.';
+    }
+    return ok;
   }
 
   String? lastRecordError;
