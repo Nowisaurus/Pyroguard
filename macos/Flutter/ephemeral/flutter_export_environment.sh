@@ -1,8 +1,8 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
 export "FLUTTER_ROOT=C:\flutter"
-export "FLUTTER_APPLICATION_PATH=C:\Users\Zexal\Downloads\PyroGuard_Complete_Flutter_Updated\PyroGuard"
-export "FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=C:\Users\Zexal\Downloads\PyroGuard_Complete_Flutter_Updated\PyroGuard\macos\Flutter\ephemeral\Packages\.packages\FlutterFramework"
+export "FLUTTER_APPLICATION_PATH=C:\Users\Zexal\Downloads\Pyroguard_Final_Na_Sana_v9\Pyroguard_Final_Na_Sana"
+export "FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=C:\Users\Zexal\Downloads\Pyroguard_Final_Na_Sana_v9\Pyroguard_Final_Na_Sana\macos\Flutter\ephemeral\Packages\.packages\FlutterFramework"
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_BUILD_DIR=build"
 export "FLUTTER_BUILD_NAME=1.0.0"

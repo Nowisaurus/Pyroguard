@@ -424,8 +424,8 @@ class AppTheme {
         ),
         cardColor: AppColors.darkCard.withValues(alpha: .35),
         cardTheme: CardThemeData(
-          color: AppColors.darkCard.withValues(alpha: .35),
-          elevation: 0,
+          color: AppColors.darkCard, // solid: see-through menus were unreadable
+          surfaceTintColor: Colors.transparent,          elevation: 0,
           shape: RoundedRectangleBorder(
             side: BorderSide(color: Colors.white.withValues(alpha: .12)),
             borderRadius: BorderRadius.circular(18),
@@ -453,9 +453,10 @@ class AppTheme {
               borderRadius: BorderRadius.all(Radius.circular(8))),
           textStyle: TextStyle(color: AppColors.textPrimary, fontSize: 12),
         ),
-        popupMenuTheme: PopupMenuThemeData(
-          color: AppColors.darkCard.withValues(alpha: .35),
-          textStyle: const TextStyle(color: AppColors.textPrimary),
+        popupMenuTheme: const PopupMenuThemeData(
+                    color: AppColors.darkCard, // solid: see-through menus were unreadable
+          surfaceTintColor: Colors.transparent,
+          textStyle: TextStyle(color: AppColors.textPrimary),
         ),
         // Solid sheets: at 20% opacity the page behind showed through and the
         // text (e.g. "Recorded sensor history") was unreadable.
@@ -585,7 +586,8 @@ class AppTheme {
         ),
         cardColor: Colors.white.withValues(alpha: .35),
         cardTheme: CardThemeData(
-          color: Colors.white.withValues(alpha: .35),
+                    color: Colors.white, // solid: see-through menus were unreadable
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
           shape: RoundedRectangleBorder(
             side: const BorderSide(color: AppColors.lightBorder),
@@ -614,9 +616,10 @@ class AppTheme {
               borderRadius: BorderRadius.all(Radius.circular(8))),
           textStyle: TextStyle(color: Colors.white, fontSize: 12),
         ),
-        popupMenuTheme: PopupMenuThemeData(
-          color: Colors.white.withValues(alpha: .35),
-          textStyle: const TextStyle(color: AppColors.lightTextPrimary),
+        popupMenuTheme: const PopupMenuThemeData(
+          color: Colors.white, // solid: see-through menus were unreadable
+          surfaceTintColor: Colors.transparent,
+          textStyle: TextStyle(color: AppColors.lightTextPrimary),
         ),
         // Solid sheets: at 35% opacity the page behind showed through and the
         // text (e.g. "Recorded sensor history") was unreadable.
