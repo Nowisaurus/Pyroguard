@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/room_sensor_service.dart';
@@ -463,7 +463,7 @@ class _PlanPainter extends CustomPainter {
       final mine = youRoom == null || route.room.key == youRoom;
       if (youRoom != null && !mine) continue;
       final pts = route.path.map(px).toList();
-      final path = ui.Path()..moveTo(pts.first.dx, pts.first.dy);
+      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
       for (final p in pts.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }
@@ -548,7 +548,7 @@ class _PlanPainter extends CustomPainter {
     final dir = Offset(math.cos(-a), math.sin(-a));
     final left = Offset(math.cos(-a + 2.6), math.sin(-a + 2.6));
     final right = Offset(math.cos(-a - 2.6), math.sin(-a - 2.6));
-    final path = ui.Path()
+    final path = Path()
       ..moveTo(p.dx + dir.dx * 3, p.dy + dir.dy * 3)
       ..lineTo(p.dx + left.dx * len, p.dy + left.dy * len)
       ..lineTo(p.dx + right.dx * len, p.dy + right.dy * len)
@@ -592,9 +592,12 @@ class WhereAreYouChips extends StatelessWidget {
 /// area. Appears only for a verified fire (smoke AND flame confirmed in two
 /// consecutive fresh readings).
 class EvacuationGuideCard extends StatefulWidget {
-  const EvacuationGuideCard({super.key, required this.controller, required this.room});
+  const EvacuationGuideCard({super.key, required this.controller, required this.room, this.level = 2});
   final String controller;
   final String room;
+
+  /// 2 = confirmed fire, 1 = smoke or flame warning.
+  final int level;
 
   @override
   State<EvacuationGuideCard> createState() => _EvacuationGuideCardState();
@@ -633,7 +636,9 @@ class _EvacuationGuideCardState extends State<EvacuationGuideCard> {
     final rooms = data.items.where((i) => i.kind == 'room');
     final hazard = {for (final r in rooms) r.key: liveHazard(r)};
     for (final r in rooms) {
-      if (r.controller == widget.controller && r.room == widget.room) hazard[r.key] = 2;
+      if (r.controller == widget.controller && r.room == widget.room) {
+        hazard[r.key] = (hazard[r.key] ?? 0) > widget.level ? hazard[r.key]! : widget.level;
+      }
     }
     final you = evacuationYouRoom.value;
     final routes = planRoutes(data.items, hazard);

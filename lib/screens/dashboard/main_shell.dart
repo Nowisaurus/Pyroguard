@@ -66,6 +66,9 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   String? _dismissedFireEpisode;
+  String? _dismissedWarningEpisode;
+  String? _lastWarningNoticeId;
+  DateTime? _lastWarningNoticeAt;
   bool _remoteThemeApplied = false;
   Timer? _dualSyncRetryTimer;
 
@@ -199,12 +202,12 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _onSensor() {
+    final r = SensorService.instance.latest;
     if (!mounted) return;
+    if (r == null) { setState(() {}); return; }
+    // The old single-reading warning pop-up is replaced by the verified
+    // warning banner (two consecutive room readings), to avoid false alarms.
     setState(() {});
-  }
-
-  void _go(String path) {
-    context.go(path);
   }
 
   Future<void> _logout() async {
@@ -221,6 +224,10 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (mounted) context.go('/');
   }
 
+  void _go(String path) {
+    context.go(path);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAdmin = _adminIdentity;
@@ -235,6 +242,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     // Smoke or flame in two consecutive readings, but not a confirmed fire:
     // a warning banner only (no evacuation pop-up for one-sensor readings).
     final warning = isAdmin || verifiedFire != null ? null : RoomSensorService.instance.verifiedWarning;
+    final warningEpisode = warning == null ? null : '${warning.controller}/${warning.room}';
+    if (warning == null) _dismissedWarningEpisode = null;
+    // The floor plan guide pops up as soon as a warning is verified; after
+    // "Area checked" it shrinks to the banner, which can reopen it.
+    final warningPopup = warning != null && warningEpisode != _dismissedWarningEpisode;
     final user   = Supabase.instance.client.auth.currentUser;
     final name   = user?.userMetadata?['full_name'] as String? ?? 'User';
     final email  = user?.email ?? '';
@@ -260,7 +272,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             Expanded(
               child: Stack(children: [
                 widget.child,
-                if (warning != null)
+                if (warning != null && !warningPopup)
                   Positioned(
                     left: 12,
                     right: 12,
@@ -282,13 +294,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                               ),
                             ),
                             TextButton(
-                              onPressed: () => _go('/map'),
-                              child: const Text('Exit guide', style: TextStyle(color: Colors.white)),
+                              onPressed: () => setState(() => _dismissedWarningEpisode = null),
+                              child: const Text('Show exit guide', style: TextStyle(color: Colors.white)),
                             ),
                           ]),
                         ),
                       ),
                     ),
+                  ),
+                if (warningPopup)
+                  _WarningOverlay(
+                    warning: warning,
+                    onOpenMap: () {
+                      setState(() => _dismissedWarningEpisode = warningEpisode);
+                      _go('/map');
+                    },
+                    onClose: () => setState(() => _dismissedWarningEpisode = warningEpisode),
                   ),
                 if (alarm)
                   _FireOverlay(fire: verifiedFire, onClose: () {
@@ -752,6 +773,10 @@ class _FireOverlayState extends State<_FireOverlay> {
                     Text('${fire.controller}  •  ${RoomSensorService.label(fire.controller, fire.room)}',
                       style: TextStyle(fontSize: 13,
                         color: AppTheme.textSecondary(context))),
+                    const SizedBox(height: 14),
+                    // The evacuation guide comes FIRST: where the fire is,
+                    // where you are, and the animated safe route to the exit.
+                    EvacuationGuideCard(controller: fire.controller, room: fire.room),
                     const SizedBox(height: 16),
                     Container(
                       width: double.infinity,
@@ -771,10 +796,6 @@ class _FireOverlayState extends State<_FireOverlay> {
                           style: TextStyle(fontSize: 12)),
                       ]),
                     ),
-                    const SizedBox(height: 14),
-                    // Animated floor plan: burning room, safe route to the exit,
-                    // evacuation area. Only shown for a verified fire.
-                    EvacuationGuideCard(controller: fire.controller, room: fire.room),
                     const SizedBox(height: 14),
                     Align(alignment: Alignment.centerLeft,
                       child: Text(station, style: const TextStyle(fontWeight: FontWeight.w800))),
@@ -860,6 +881,106 @@ class _FireOverlayState extends State<_FireOverlay> {
                   ]),
                   ),
                 ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pop-up for a verified smoke OR flame warning (two consecutive readings):
+/// shows the floor plan with the room marked and the safe way out, so the
+/// family knows where to go while they check the area.
+class _WarningOverlay extends StatelessWidget {
+  const _WarningOverlay({required this.warning, required this.onClose, required this.onOpenMap});
+  final VerifiedRoomFire warning;
+  final VoidCallback onClose;
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = warning.reading;
+    final smoke = '${r['smoke_status'] ?? ''}'.toUpperCase();
+    final what = r['flame_detected'] == true && ['ALARM', 'FIRE', 'DANGER', 'CRITICAL'].contains(smoke)
+        ? 'Smoke and flame'
+        : r['flame_detected'] == true
+            ? 'Flame'
+            : 'Smoke';
+    final room = RoomSensorService.label(warning.controller, warning.room);
+    final temp = r['temperature'] is num ? '${(r['temperature'] as num).toStringAsFixed(1)} °C' : '-';
+
+    return Positioned.fill(
+      child: Material(
+        color: const Color(0x88160C0C),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.card(context).withValues(alpha: .94),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppColors.amber.withValues(alpha: .6)),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .22), blurRadius: 32, offset: const Offset(0, 12))],
+                      ),
+                      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Row(children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(color: AppColors.amber.withValues(alpha: .16), borderRadius: BorderRadius.circular(11)),
+                            child: Icon(Icons.warning_amber_rounded, color: AppTheme.warningForeground(context)),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text('$what detected in the $room',
+                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: AppTheme.textPrimary(context))),
+                              Text('Not a confirmed fire yet · ${warning.controller} · $temp',
+                                  style: TextStyle(fontSize: 12, color: AppTheme.textSecondary(context))),
+                            ]),
+                          ),
+                          IconButton(tooltip: 'Close', onPressed: onClose, icon: const Icon(Icons.close_rounded)),
+                        ]),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Check the $room carefully. If you see smoke or fire, leave right away using the route below.',
+                          style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary(context), height: 1.35),
+                        ),
+                        const SizedBox(height: 12),
+                        EvacuationGuideCard(controller: warning.controller, room: warning.room, level: 1),
+                        const SizedBox(height: 14),
+                        Row(children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: onOpenMap,
+                              icon: const Icon(Icons.map_outlined, size: 18),
+                              label: const Text('Full map'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(backgroundColor: AppColors.orange, foregroundColor: Colors.white),
+                              onPressed: onClose,
+                              icon: const Icon(Icons.check_rounded, size: 18),
+                              label: const Text('Area checked'),
+                            ),
+                          ),
+                        ]),
+                      ]),
+                    ),
+                  ),
                 ),
               ),
             ),
