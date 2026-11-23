@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
 
@@ -45,7 +46,7 @@ class _FeedbackFormPageState extends State<FeedbackFormPage> {
     if (_saving || !(_formKey.currentState?.validate() ?? false)) return;
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in before submitting feedback.')));
+      PgNotice.show('Please log in before submitting feedback.', kind: PgNoticeKind.warning);
       return;
     }
     setState(() { _saving = true; _submitError = null; });
@@ -60,7 +61,6 @@ class _FeedbackFormPageState extends State<FeedbackFormPage> {
       }).select('id').single();
       if (inserted['id'] == null) throw StateError('No submission receipt was returned.');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback submitted successfully.')));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
@@ -74,7 +74,7 @@ class _FeedbackFormPageState extends State<FeedbackFormPage> {
                       : 'Feedback was not saved: ${e.message} (${e.code ?? 'unknown code'}).')
           : 'Unable to submit feedback. Check your connection and retry. Your text is preserved.';
       setState(() { _submitError = message; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 8)));
+      PgNotice.show(message, kind: PgNotice.guess(message));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

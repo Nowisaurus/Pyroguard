@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'pg_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -149,7 +150,7 @@ class _SensorHealthPanelState extends State<SensorHealthPanel> {
       await _loadMaintenance();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+        PgNotice.show('Could not save: $e', kind: PgNoticeKind.error);
       }
     }
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/camera_telemetry_service.dart';
 import '../../services/device_service.dart';
@@ -319,13 +320,8 @@ class _SecurityControlsPanel extends StatelessWidget {
 
   Future<void> _mode(BuildContext context, SecurityMode mode) async {
     final ok = await security.setMode(mode);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok
-          ? (hardwareOnline ? '${mode.label} command saved and sent.' : '${mode.label} saved. It will be applied automatically when the ESP32 reconnects.')
-          : 'Could not save the security mode.'),
-      backgroundColor: ok ? AppColors.green : AppColors.redBright,
-    ));
+    if (!context.mounted || ok) return; // the selected mode button shows success
+    PgNotice.show('Could not save the security mode.', kind: PgNoticeKind.error);
   }
 
   @override

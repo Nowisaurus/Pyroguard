@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/login_lock_service.dart';
@@ -290,12 +291,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await Supabase.instance.client.auth.resetPasswordForEmail(email, redirectTo: '${Uri.base.origin}/reset-password');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Password reset link sent. Check your email.'),
-          backgroundColor: Color(0xFF166534),
-        ),
-      );
+      PgNotice.show('Check your email for the password reset link.', kind: PgNoticeKind.success, title: 'Reset link sent');
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = _friendly(e.message));
     }

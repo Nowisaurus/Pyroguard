@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../responsive.dart';
@@ -278,15 +279,10 @@ class _AdminTabState extends State<AdminTab> {
             raw is Map ? '${raw['error']}' : 'Management request failed');
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(body['action'] == 'queue_security'
-              ? 'Command ${raw['command']?['id']} queued. Wait for the device acknowledgement below.'
-              : 'Saved in Supabase. The MySQL worker will mirror this change.')));
       await _load(silent: true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Action failed: $e')));
+        PgNotice.show('Action failed: $e', kind: PgNoticeKind.error);
       }
     } finally {
       if (mounted) setState(() => _managing = false);
@@ -360,19 +356,10 @@ class _AdminTabState extends State<AdminTab> {
       }
       if (!mounted) return;
       await _load();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(databaseHealth['mode'] == 'local-pc'
-                ? 'Sync requested. Keep the PC worker running and wait for its next completed cycle.'
-                : databaseHealth['mysql'] == true
-                    ? 'Account sync checked. Review each user’s verified/pending result below.'
-                    : 'MySQL is still unavailable. Open Database sync for the setup details.')),
-      );
+      // Result is shown in the Database sync page; no pop-up.
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Sync retry failed: $e')));
+        PgNotice.show('Sync retry failed: $e', kind: PgNoticeKind.error);
       }
     } finally {
       if (mounted) setState(() => _syncing = false);

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,7 +14,7 @@ final _when = DateFormat('MMM d, yyyy h:mm a');
 SupabaseClient get _db => Supabase.instance.client;
 
 void _snack(BuildContext context, String text) {
-  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  if (context.mounted) PgNotice.show(text, kind: PgNotice.guess(text));
 }
 
 String _time(dynamic v) {
@@ -171,7 +172,6 @@ class _AdminCostCatalogPanelState extends State<AdminCostCatalogPanel> {
         }
       }
       await _load();
-      if (mounted) _snack(context, 'Price list updated. Homeowners see the change right away.');
     } catch (e) {
       if (mounted) _snack(context, 'Could not save: $e');
     }

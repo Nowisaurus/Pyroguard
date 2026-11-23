@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import '../../widgets/camera_overlay_style.dart';
 import 'package:flutter/services.dart';
 import '../../config/camera_network_config.dart';
@@ -75,13 +76,8 @@ class _CameraFullscreenPageState extends State<CameraFullscreenPage> {
     if (text != null) {
       final error = _actions.messageIsError;
       _actions.clearMessage();
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(text),
-          backgroundColor: error ? AppColors.orangeDeep : null,
-          duration: const Duration(seconds: 3),
-        ));
+      if (!error) { setState(() {}); return; } // success shows in the UI itself
+      PgNotice.show(text, kind: PgNoticeKind.error);
     }
     setState(() {});
   }

@@ -1,6 +1,7 @@
 // ignore_for_file: unused_field
 
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import '../../services/sensor_service.dart';
 import '../../services/pyroguard_event_log_service.dart';
 import '../../theme.dart';
@@ -76,10 +77,9 @@ class _IncidentsTabState extends State<IncidentsTab> {
     if (days == null) return;
     setState(() => _exporting = true);
     try {
-      final n = await EventsExportService.downloadPdf(days: days);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$n events exported.')));
+      await EventsExportService.downloadPdf(days: days);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not export events: $e')));
+      if (mounted) PgNotice.show('Could not export events: $e', kind: PgNoticeKind.error);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }

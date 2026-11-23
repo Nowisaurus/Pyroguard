@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'pg_notice.dart';
 import 'package:intl/intl.dart';
 
 import '../screens/settings/settings_screen.dart' show BfpSettingsPage;
@@ -21,18 +22,15 @@ String incidentDuration(HomeIncident inc) {
 
 /// Downloads the BFP incident report PDF (shared by Events and Calendar).
 Future<void> downloadIncidentPdf(BuildContext context, HomeIncident inc) async {
-  final messenger = ScaffoldMessenger.of(context);
-  messenger.showSnackBar(const SnackBar(duration: Duration(seconds: 3), content: Text('Preparing the PDF report...')));
   try {
     await IncidentReportService.download(inc);
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('Could not create the PDF: $e')));
+    PgNotice.show('Could not create the PDF: $e', kind: PgNoticeKind.error);
   }
 }
 
 /// E-mails the PDF to the saved BFP station (with confirmation).
 Future<void> sendIncidentToBfp(BuildContext context, HomeIncident inc) async {
-  final messenger = ScaffoldMessenger.of(context);
   final navigator = Navigator.of(context);
   final bfp = await IncidentReportService.bfpContact();
   if (!context.mounted) return;
@@ -71,12 +69,11 @@ Future<void> sendIncidentToBfp(BuildContext context, HomeIncident inc) async {
     ),
   );
   if (ok != true) return;
-  messenger.showSnackBar(const SnackBar(duration: Duration(seconds: 3), content: Text('Sending the report...')));
   try {
     final to = await IncidentReportService.emailToBfp(inc);
-    messenger.showSnackBar(SnackBar(backgroundColor: const Color(0xFF166534), content: Text('Report ${inc.reportNumber} sent to $to.')));
+    PgNotice.show('Report ${inc.reportNumber} was e-mailed to $to.', kind: PgNoticeKind.success, title: 'Sent to BFP');
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    PgNotice.show(e.toString(), kind: PgNoticeKind.error, title: 'Report not sent');
   }
 }
 

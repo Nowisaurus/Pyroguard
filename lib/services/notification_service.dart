@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
+import '../widgets/pg_notice.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:vibration/vibration.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -549,31 +550,19 @@ class NotificationService {
   // silent just because system notifications were refused. The fire
   // emergency has its own full-screen overlay in the dashboard shell.
   static void _inApp(PyroAlertKind kind, String title, String body, String route) {
-    final messenger = messengerKey.currentState;
-    if (messenger == null) return;
-    final (color, icon) = switch (kind) {
-      PyroAlertKind.fire => (const Color(0xFF991B1B), Icons.local_fire_department),
-      PyroAlertKind.intrusion => (const Color(0xFF5B21B6), Icons.sensor_door_outlined),
-      PyroAlertKind.deviceStatus => (const Color(0xFF1E3A8A), Icons.developer_board_outlined),
-      PyroAlertKind.warning => (const Color(0xFF92400E), Icons.warning_amber),
-      PyroAlertKind.test => (const Color(0xFF166534), Icons.notifications_active_outlined),
-    };
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
-      backgroundColor: color,
-      behavior: SnackBarBehavior.floating,
-      duration: Duration(seconds: kind == PyroAlertKind.intrusion ? 12 : 7),
-      content: Row(children: [
-        Icon(icon, color: Colors.white),
-        const SizedBox(width: 10),
-        Expanded(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 2),
-          Text(body, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
-        ])),
-      ]),
-      action: SnackBarAction(label: 'VIEW', textColor: Colors.white, onPressed: () => _openRoute(route)),
-    ));
+    PgNotice.show(
+      body,
+      title: title,
+      kind: switch (kind) {
+        PyroAlertKind.fire => PgNoticeKind.fire,
+        PyroAlertKind.intrusion => PgNoticeKind.intrusion,
+        PyroAlertKind.deviceStatus => PgNoticeKind.device,
+        PyroAlertKind.warning => PgNoticeKind.warning,
+        PyroAlertKind.test => PgNoticeKind.info,
+      },
+      actionLabel: 'View',
+      onAction: () => _openRoute(route),
+    );
   }
 
   static Future<bool> _preferenceEnabled(String channel) async {

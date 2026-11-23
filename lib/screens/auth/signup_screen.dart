@@ -6,6 +6,7 @@ import '../../services/password_policy.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
@@ -322,18 +323,13 @@ class _SignupScreenState extends State<SignupScreen> {
       if (!mounted) return;
       if (hasSession) {
         if (result['dual_saved'] != true) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text(
-                  'Your account was created. The MySQL copy is pending synchronization. Keep your configured sync worker running.')));
+          PgNotice.show('Your account was created. The MySQL copy is pending synchronization. Keep your configured sync worker running.', kind: PgNoticeKind.warning);
         }
         context.go('/tutorial');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result['dual_saved'] == true
+        PgNotice.show(result['dual_saved'] == true
               ? 'Account details saved to both databases. Verify your email, then sign in.'
-              : 'Enter the code from your email and tap Confirm Account, or use the email confirmation link. Your MySQL copy is pending until verified by the worker.'),
-          backgroundColor: const Color(0xFF166534),
-        ));
+              : 'Enter the code from your email and tap Confirm Account, or use the email confirmation link. Your MySQL copy is pending until verified by the worker.', kind: PgNoticeKind.success);
         context.go('/verify-email', extra: normalizedEmail);
       }
     } on AuthException catch (e) {

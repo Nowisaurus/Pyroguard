@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
@@ -81,8 +82,7 @@ class _MapTabState extends State<MapTab> {
   /// Owner sets the real home pin and address (tap map or use phone GPS).
   Future<void> _editLocation() async {
     if (!_ownHome || _home['id'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Only the home owner can change the home location.')));
+      PgNotice.show('Only the home owner can change the home location.', kind: PgNoticeKind.warning);
       return;
     }
     var point = LatLng(_lat ?? 14.6510, _lng ?? 120.9674);
@@ -148,7 +148,7 @@ class _MapTabState extends State<MapTab> {
                             await fill(p);
                           } catch (e) {
                             if (ctx.mounted) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('GPS not available: $e')));
+                              PgNotice.show('GPS not available: $e', kind: PgNoticeKind.error);
                             }
                           }
                         },
@@ -188,9 +188,8 @@ class _MapTabState extends State<MapTab> {
       try {
         _map.move(point, 17);
       } catch (_) {}
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Home location saved.')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+      if (mounted) PgNotice.show('Could not save: $e', kind: PgNoticeKind.error);
     }
   }
 

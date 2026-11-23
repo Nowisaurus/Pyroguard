@@ -3,6 +3,7 @@
 import 'screens/auth/inactivity_monitor.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -129,7 +130,7 @@ class PyroGuardApp extends StatelessWidget {
         child: InactivityMonitor(
           router: appRouter!,
           // Fingerprint unlock on phones (panel suggestion); no effect on web.
-          child: BiometricGate(child: child ?? const SizedBox.shrink()),
+          child: BiometricGate(child: PgNoticeHost(child: child ?? const SizedBox.shrink())),
         ),
       ),
     );

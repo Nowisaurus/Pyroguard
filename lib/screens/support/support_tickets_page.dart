@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import '../../theme.dart';
 import '../../services/admin_service.dart';
 import 'feedback_form_page.dart';
@@ -146,8 +147,7 @@ class _SupportTicketsPageState extends State<SupportTicketsPage> {
       await load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+        PgNotice.show('$e', kind: PgNoticeKind.error);
       }
       return;
     }
@@ -278,10 +278,7 @@ class _SupportTicketsPageState extends State<SupportTicketsPage> {
                                           } catch (e) {
                                             if (ctx.mounted) update(() => busy = false);
                                             if (ctx.mounted) {
-                                              ScaffoldMessenger.of(ctx)
-                                                  .showSnackBar(SnackBar(
-                                                      content: Text(
-                                                          'Save failed: $e')));
+                                              PgNotice.show('Save failed: $e', kind: PgNoticeKind.error);
                                             }
                                           }
                                         },
@@ -307,7 +304,7 @@ class _SupportTicketsPageState extends State<SupportTicketsPage> {
                                     if (ctx.mounted) Navigator.pop(ctx);
                                     await refresh();
                                   } catch (e) {
-                                    if (ctx.mounted) { update(() => busy = false); ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Delete failed: $e'))); }
+                                    if (ctx.mounted) { update(() => busy = false); PgNotice.show('Delete failed: $e', kind: PgNoticeKind.error); }
                                   }
                                 },
                               ),
@@ -366,10 +363,7 @@ class _SupportTicketsPageState extends State<SupportTicketsPage> {
                                         } catch (e) {
                                           if (ctx.mounted) update(() => busy = false);
                                           if (ctx.mounted) {
-                                            ScaffoldMessenger.of(ctx)
-                                                .showSnackBar(SnackBar(
-                                                    content: Text(
-                                                        'Reply failed: $e')));
+                                            PgNotice.show('Reply failed: $e', kind: PgNoticeKind.error);
                                           }
                                         }
                                       },

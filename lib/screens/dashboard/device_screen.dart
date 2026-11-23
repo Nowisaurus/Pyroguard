@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import '../../widgets/door_window_activity_panel.dart';
 import '../../widgets/cost_estimate_panel.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -221,13 +222,8 @@ class _DeviceTabState extends State<DeviceTab> {
   Widget _securityControls(SecurityControlService security, bool hardwareOnline) {
     Future<void> setMode(SecurityMode mode) async {
       final ok = await security.setMode(mode);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(ok
-            ? (hardwareOnline ? '${mode.label} saved.' : '${mode.label} saved. It will apply automatically when hardware reconnects.')
-            : 'Could not save security command.'),
-        backgroundColor: ok ? AppColors.green : AppColors.redBright,
-      ));
+      if (!mounted || ok) return; // the selected mode button shows success
+      PgNotice.show('Could not save security command.', kind: PgNoticeKind.error);
     }
 
     Widget modeButton(String label, SecurityMode mode, Color color) {

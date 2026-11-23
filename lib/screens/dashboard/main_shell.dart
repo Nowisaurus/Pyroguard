@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
@@ -65,8 +66,6 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   String? _dismissedFireEpisode;
-  String? _lastWarningNoticeId;
-  DateTime? _lastWarningNoticeAt;
   bool _remoteThemeApplied = false;
   Timer? _dualSyncRetryTimer;
 
@@ -200,9 +199,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _onSensor() {
-    final r = SensorService.instance.latest;
     if (!mounted) return;
-    if (r == null) { setState(() {}); return; }
     setState(() {});
   }
 
@@ -679,15 +676,14 @@ class _FireOverlayState extends State<_FireOverlay> {
           controller: fire.controller, room: fire.room, days: 2);
       if (inc == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('The readings are still being saved. Try again in a few seconds.')));
+          PgNotice.show('The readings are still being saved. Try again in a few seconds.', kind: PgNoticeKind.warning);
         }
         return;
       }
       await IncidentReportService.download(inc);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create the PDF: $e')));
+        PgNotice.show('Could not create the PDF: $e', kind: PgNoticeKind.error);
       }
     } finally {
       if (mounted) setState(() => _reporting = false);
@@ -801,15 +797,13 @@ class _FireOverlayState extends State<_FireOverlay> {
                             if (!context.mounted) return;
                             if (NotificationService.bfpPhone.trim().isEmpty ||
                                 !NotificationService.bfpConfirmedByUser) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Confirm a valid BFP contact in Settings first.')));
+                              PgNotice.show('Confirm a valid BFP contact in Settings first.', kind: PgNoticeKind.warning);
                               return;
                             }
                             final ok = await NotificationService.callBFP(
                               deviceIdOverride: fire.controller);
                             if (!ok && context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Phone dialer could not be opened. Use the displayed phone number or a telephone.')));
+                              PgNotice.show('Phone dialer could not be opened. Use the displayed phone number or a telephone.', kind: PgNoticeKind.error);
                             }
                           } finally {
                             if (mounted) setState(() => _calling = false);

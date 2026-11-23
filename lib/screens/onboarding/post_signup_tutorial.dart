@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
@@ -265,7 +266,7 @@ class _PostSignupTutorialScreenState extends State<PostSignupTutorialScreen> {
     } catch (_) {
       if (mounted) {
         setState(() => _finishing = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save tutorial completion. Please try again.')));
+        PgNotice.show('Could not save tutorial completion. Please try again.', kind: PgNoticeKind.error);
       }
     }
   }

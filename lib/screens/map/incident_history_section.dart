@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -354,7 +355,7 @@ class _IncidentHistorySectionState extends State<IncidentHistorySection> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save the incident: $e')));
+        PgNotice.show('Could not save the incident: $e', kind: PgNoticeKind.error);
       }
     }
   }
@@ -366,7 +367,7 @@ class _IncidentHistorySectionState extends State<IncidentHistorySection> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete: $e')));
+        PgNotice.show('Could not delete: $e', kind: PgNoticeKind.error);
       }
     }
   }

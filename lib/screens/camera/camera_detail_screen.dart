@@ -3,6 +3,7 @@ import '../../config/camera_endpoint.dart';
 import 'dart:ui';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../../widgets/pg_notice.dart';
 import '../../widgets/camera_overlay_style.dart';
 import 'package:http/http.dart' as http;
 import '../../services/camera_audio_service.dart';
@@ -125,13 +126,8 @@ class _CameraDetailScreenState extends State<CameraDetailScreen> {
     if (text != null) {
       final error = _actions.messageIsError;
       _actions.clearMessage();
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(text),
-          backgroundColor: error ? AppColors.orangeDeep : null,
-          duration: const Duration(seconds: 3),
-        ));
+      if (!error) { setState(() {}); return; } // success shows in the UI itself
+      PgNotice.show(text, kind: PgNoticeKind.error);
     }
     setState(() {}); // zoom / recording indicator
   }

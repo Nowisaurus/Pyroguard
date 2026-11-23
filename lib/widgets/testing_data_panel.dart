@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'pg_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -171,7 +172,7 @@ class _TestingDataPanelState extends State<TestingDataPanel> {
       ));
       await Printing.sharePdf(bytes: await doc.save(), filename: 'PyroGuard_Sensor_Ranges.pdf');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create the PDF: $e')));
+      if (mounted) PgNotice.show('Could not create the PDF: $e', kind: PgNoticeKind.error);
     } finally {
       if (mounted) setState(() => _pdfBusy = false);
     }

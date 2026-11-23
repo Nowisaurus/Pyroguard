@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'pg_notice.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -86,8 +87,7 @@ class _HomeLayoutPanelState extends State<HomeLayoutPanel> {
   Future<void> _setEvacuation() async {
     final home = _homePoint;
     if (!_ownHome || _home == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Only the home owner can set the evacuation area.')));
+      PgNotice.show('Only the home owner can set the evacuation area.', kind: PgNoticeKind.warning);
       return;
     }
     LatLng picked = _evacPoint ?? home ?? const LatLng(14.6620, 120.9570);
@@ -158,7 +158,7 @@ class _HomeLayoutPanelState extends State<HomeLayoutPanel> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+        PgNotice.show('Could not save: $e', kind: PgNoticeKind.error);
       }
     }
   }
@@ -179,12 +179,9 @@ class _HomeLayoutPanelState extends State<HomeLayoutPanel> {
       }
       _saved = true;
       _dirty = false;
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Home layout saved.')));
-      }
+      if (mounted) setState(() {});
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+      if (mounted) PgNotice.show('Could not save: $e', kind: PgNoticeKind.error);
     }
   }
 
@@ -298,7 +295,7 @@ class _HomeLayoutPanelState extends State<HomeLayoutPanel> {
                 backgroundColor: _dirty ? AppColors.orange : AppColors.maroonMid,
                 visualDensity: VisualDensity.compact,
               ),
-              child: const Text('Save'),
+              child: Text(_dirty ? 'Save' : 'Saved'),
             ),
           ],
         ),
@@ -431,7 +428,6 @@ class _HomeLayoutPanelState extends State<HomeLayoutPanel> {
                     'Flame sensor covers about '
                     '${(math.min(1.0, math.pi * flameR * flameR / math.max(r.area, .1)) * 100).round()}% of this room '
                     '(${flameR.toStringAsFixed(1)} m range, typical for a 60° flame module)',
-
                     style: TextStyle(color: secondary, fontSize: 11.5),
                   ),
                 ]),
