@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'router.dart';
 import 'services/notification_service.dart';
 import 'theme.dart';
+import 'widgets/biometric_gate.dart';
 
 const String _defaultSupabaseUrl = 'https://gljzunjbmmsbkayxtyfc.supabase.co';
 const String _defaultSupabaseAnonKey =
@@ -125,7 +126,11 @@ class PyroGuardApp extends StatelessWidget {
       themeMode: themeNotifier.mode,
       routerConfig: appRouter!,
       builder: (context, child) => PhoenixBackdrop(
-        child: InactivityMonitor(router: appRouter!, child: child ?? const SizedBox.shrink()),
+        child: InactivityMonitor(
+          router: appRouter!,
+          // Fingerprint unlock on phones (panel suggestion); no effect on web.
+          child: BiometricGate(child: child ?? const SizedBox.shrink()),
+        ),
       ),
     );
   }

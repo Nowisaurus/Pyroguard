@@ -14,6 +14,8 @@ import '../../services/security_activity_service.dart';
 import '../../config/camera_network_config.dart';
 import '../../config/coverage_config.dart';
 import '../../services/notification_service.dart';
+import '../../services/incident_report_service.dart';
+import '../../widgets/evacuation_guide.dart';
 import '../../services/account_bootstrap_service.dart';
 import '../../services/security_control_service.dart';
 import '../../services/admin_service.dart';
@@ -201,28 +203,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final r = SensorService.instance.latest;
     if (!mounted) return;
     if (r == null) { setState(() {}); return; }
-    final noticeKey = r.incidentType;
-    final quiet = _lastWarningNoticeAt != null &&
-        DateTime.now().difference(_lastWarningNoticeAt!) < const Duration(minutes: 5) &&
-        noticeKey == _lastWarningNoticeId;
-    if (SensorService.instance.warningActive && !SensorService.instance.alarmActive && !quiet) {
-      _lastWarningNoticeId = noticeKey;
-      _lastWarningNoticeAt = DateTime.now();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        backgroundColor: const Color(0xFF92400E),
-        duration: const Duration(seconds: 7),
-        content: Row(children: [
-          const Icon(Icons.warning_amber, color: Colors.white),
-          const SizedBox(width: 8),
-          Expanded(child: Text(
-            '${r.incidentType}. Not a confirmed fire - check the area.',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-          )),
-        ]),
-        action: SnackBarAction(label: 'Dismiss', textColor: Colors.white,
-            onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar()),
-      ));
-    }
     setState(() {});
   }
 
@@ -255,6 +235,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     if (verifiedFire == null) _dismissedFireEpisode = null;
     final fireEpisode = verifiedFire == null ? null : '${verifiedFire.controller}/${verifiedFire.room}';
     final alarm = verifiedFire != null && fireEpisode != _dismissedFireEpisode;
+    // Smoke or flame in two consecutive readings, but not a confirmed fire:
+    // a warning banner only (no evacuation pop-up for one-sensor readings).
+    final warning = isAdmin || verifiedFire != null ? null : RoomSensorService.instance.verifiedWarning;
     final user   = Supabase.instance.client.auth.currentUser;
     final name   = user?.userMetadata?['full_name'] as String? ?? 'User';
     final email  = user?.email ?? '';
@@ -280,6 +263,36 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
             Expanded(
               child: Stack(children: [
                 widget.child,
+                if (warning != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 8,
+                    child: SafeArea(
+                      child: Material(
+                        color: const Color(0xFF92400E),
+                        borderRadius: BorderRadius.circular(12),
+                        elevation: 6,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                          child: Row(children: [
+                            Expanded(
+                              child: Text(
+                                'Warning: ${'${warning.reading['smoke_status']}'.toUpperCase() == 'ALARM' ? 'smoke' : 'flame'} '
+                                'in the ${RoomSensorService.label(warning.controller, warning.room)}. '
+                                'Not a confirmed fire yet - please check the area.',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _go('/map'),
+                              child: const Text('Exit guide', style: TextStyle(color: Colors.white)),
+                            ),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (alarm)
                   _FireOverlay(fire: verifiedFire, onClose: () {
                     // Closing the card acknowledges this episode: siren off too.
@@ -654,6 +667,32 @@ class _FireOverlay extends StatefulWidget {
 
 class _FireOverlayState extends State<_FireOverlay> {
   bool _calling = false;
+  bool _reporting = false;
+
+  /// Downloads the BFP incident report (PDF with camera photos and
+  /// verification code) for this fire.
+  Future<void> _downloadReport() async {
+    final fire = widget.fire;
+    setState(() => _reporting = true);
+    try {
+      final inc = await IncidentReportService.latestIncident(
+          controller: fire.controller, room: fire.room, days: 2);
+      if (inc == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('The readings are still being saved. Try again in a few seconds.')));
+        }
+        return;
+      }
+      await IncidentReportService.download(inc);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create the PDF: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _reporting = false);
+    }
+  }
 
   @override
   void initState() {
@@ -685,7 +724,7 @@ class _FireOverlayState extends State<_FireOverlay> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(18),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 510),
+                constraints: const BoxConstraints(maxWidth: 560),
                 child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
                 child: BackdropFilter(
@@ -708,7 +747,7 @@ class _FireOverlayState extends State<_FireOverlay> {
                       onPressed: widget.onClose,
                     )),
                     Image.asset('assets/images/logo_phoenix.png',
-                        width: 72, height: 72, fit: BoxFit.contain),
+                        width: 56, height: 56, fit: BoxFit.contain),
                     const SizedBox(height: 12),
                     const Text('Verified multi-sensor fire warning',
                       textAlign: TextAlign.center,
@@ -736,6 +775,10 @@ class _FireOverlayState extends State<_FireOverlay> {
                           style: TextStyle(fontSize: 12)),
                       ]),
                     ),
+                    const SizedBox(height: 14),
+                    // Animated floor plan: burning room, safe route to the exit,
+                    // evacuation area. Only shown for a verified fire.
+                    EvacuationGuideCard(controller: fire.controller, room: fire.room),
                     const SizedBox(height: 14),
                     Align(alignment: Alignment.centerLeft,
                       child: Text(station, style: const TextStyle(fontWeight: FontWeight.w800))),
@@ -779,6 +822,38 @@ class _FireOverlayState extends State<_FireOverlay> {
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 15),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _reporting ? null : _downloadReport,
+                        icon: _reporting
+                            ? const SizedBox(width: 16, height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.picture_as_pdf_outlined),
+                        label: Text(_reporting ? 'Preparing report…' : 'Incident report for BFP (PDF)'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.statusForeground(context, AppColors.red),
+                          side: BorderSide(color: AppColors.red.withValues(alpha: .6)),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(width: double.infinity,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          widget.onClose();
+                          context.go('/map');
+                        },
+                        icon: const Icon(Icons.map_outlined),
+                        label: const Text('Open full floor plan and map'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppTheme.statusForeground(context, AppColors.green),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),

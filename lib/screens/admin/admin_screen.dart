@@ -17,6 +17,7 @@ import '../../theme.dart';
 import '../../services/room_sensor_service.dart';
 import '../dashboard/room_sensor_panel.dart';
 import '../support/support_tickets_page.dart';
+import 'admin_extra_panels.dart';
 
 /// Administrator-only scaffold; intentionally independent of MainShell.
 class AdminConsoleScreen extends StatelessWidget {
@@ -48,6 +49,9 @@ class _AdminTabState extends State<AdminTab> {
     ('Activity', Icons.history),
     ('Database sync', Icons.cloud_sync_outlined),
     ('Support tickets', Icons.support_agent_outlined),
+    ('Hardware cost', Icons.request_quote_outlined),
+    ('Sensor health', Icons.monitor_heart_outlined),
+    ('User changes', Icons.manage_history_outlined),
   ];
   String get _name {
     final user = Supabase.instance.client.auth.currentUser;
@@ -410,6 +414,9 @@ class _AdminTabState extends State<AdminTab> {
               ])),
               const SizedBox(height: 12),
             ],
+            if (_selected == 8) const AdminCostCatalogPanel(),
+            if (_selected == 9) const AdminSensorHealthPanel(),
+            if (_selected == 10) const AdminChangeLogPanel(),
             if (_selected == 5)
               _section('SUPPORT OPERATIONS · ASSIGNED QUEUE', [
                 if (ticketMetricsError != null)

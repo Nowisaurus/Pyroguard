@@ -6,6 +6,8 @@ import 'shared_app_bar.dart';
 import 'dashboard_repository.dart';
 import 'dashboard_models.dart';
 import 'analytics_overview.dart';
+import '../../widgets/testing_data_panel.dart';
+import '../../widgets/sensor_health_panel.dart';
 
 class AnalyticsTab extends StatefulWidget {
   const AnalyticsTab({super.key});
@@ -38,6 +40,11 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
           if (loading) const LinearProgressIndicator(),
           if (error != null) Padding(padding: const EdgeInsets.only(bottom:12),child:Text('Unable to load saved history: $error',style:const TextStyle(color:AppColors.red))),
           AnalyticsOverview(summary: summary),
+          const SizedBox(height: 14),
+          // Sensor health: working / damaged, maintenance, device log.
+          const SensorHealthPanel(),
+          const SizedBox(height: 14),
+          const TestingDataPanel(),
         ]))),
       ])),
   );

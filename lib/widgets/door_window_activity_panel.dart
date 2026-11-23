@@ -3,6 +3,7 @@ import '../config/coverage_config.dart';
 import '../services/security_activity_service.dart';
 import '../services/security_control_service.dart';
 import '../theme.dart';
+import 'pg_ui.dart';
 
 /// ARM / DISARM together with every door/window OPEN and CLOSE, for both
 /// batches (two reed switches per ESP32):
@@ -105,8 +106,8 @@ class _DoorWindowActivityPanelState extends State<DoorWindowActivityPanel> {
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(12),
+        color: color.withValues(alpha: .06),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color.withValues(alpha: .35)),
       ),
       child: Row(children: [
@@ -149,8 +150,8 @@ class _DoorWindowActivityPanelState extends State<DoorWindowActivityPanel> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.card(context).withValues(alpha: .35),
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFFFFF9F5).withValues(alpha: AppTheme.isDark(context) ? .10 : .18),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.border(context)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -185,7 +186,7 @@ class _DoorWindowActivityPanelState extends State<DoorWindowActivityPanel> {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: .07),
+        color: color.withValues(alpha: .05),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: .30)),
       ),
@@ -224,30 +225,23 @@ class _DoorWindowActivityPanelState extends State<DoorWindowActivityPanel> {
       if (lastArm == null || (a != null && (b == null || a.isAfter(b)))) lastArm = e;
     }
     final confirmed = lastArm != null && (lastArm.type == 'ARMED') == armed;
-    final dark = AppTheme.isDark(context);
     final rows = _activity.events.take(widget.limit).toList();
 
-    return GlassPanel(
-      radius: 22,
-      blur: 18,
-      borderColor: AppColors.orange.withValues(alpha: .26),
-      tint: dark ? AppColors.darkCard.withValues(alpha: .66) : AppColors.lightCard.withValues(alpha: .68),
-      padding: const EdgeInsets.all(16),
+    return PgCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Icon(Icons.sensor_door_outlined, color: AppTheme.brandForeground(context)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text('DOOR & WINDOW ACTIVITY',
-                style: TextStyle(color: AppTheme.textPrimary(context), fontWeight: FontWeight.w900, fontSize: 13)),
-          ),
-          _armChip(armed, mode: armed ? (_security.mode == SecurityMode.armAway ? 'ARM_AWAY' : 'ARM_HOME') : null),
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _activity.refresh,
-            icon: Icon(Icons.refresh_rounded, color: AppTheme.brandForeground(context)),
-          ),
-        ]),
+        PgHeader(
+          icon: Icons.sensor_door_outlined,
+          title: 'Door & Window Activity',
+          actions: [
+            _armChip(armed, mode: armed ? (_security.mode == SecurityMode.armAway ? 'ARM_AWAY' : 'ARM_HOME') : null),
+            IconButton(
+              tooltip: 'Refresh',
+              visualDensity: VisualDensity.compact,
+              onPressed: _activity.refresh,
+              icon: Icon(Icons.refresh_rounded, color: AppTheme.textSecondary(context), size: 20),
+            ),
+          ],
+        ),
         Text(
           lastArm == null
               ? 'Waiting for an ESP32 to confirm the arm state.'

@@ -67,6 +67,7 @@ class NotificationService {
   static String? bfpPersonnel;
   static String? bfpRank;
   static String? bfpAddress;
+  static String? bfpEmail;
   static bool bfpConfirmedByUser = false;
 
   static String? _userPhone() =>
@@ -81,7 +82,7 @@ class NotificationService {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) {
       bfpPhone = ''; bfpSms = ''; bfpName = null; bfpStation = null;
-      bfpPersonnel = null; bfpRank = null; bfpAddress = null;
+      bfpPersonnel = null; bfpRank = null; bfpAddress = null; bfpEmail = null;
       bfpConfirmedByUser = false;
       return;
     }
@@ -100,6 +101,7 @@ class NotificationService {
       bfpPersonnel = row?['personnel_name']?.toString();
       bfpRank = row?['rank_position']?.toString();
       bfpAddress = row?['address']?.toString();
+      bfpEmail = row?['email']?.toString();
       bfpConfirmedByUser = (row?['is_confirmed'] as bool?) ?? false;
     } catch (e) {
       debugPrint('BFP contact refresh failed; cached contact retained: $e');

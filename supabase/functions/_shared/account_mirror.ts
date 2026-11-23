@@ -1,5 +1,5 @@
 // Only non-secret registration metadata is copied. Never copy Auth tokens/hashes.
-export const registrationKeys = ['full_name','phone_number','home_name','address','home_latitude','home_longitude','device_id','stakeholder_name','stakeholder_relationship','stakeholder_phone','bfp_station_name','bfp_personnel_name','bfp_rank_position','bfp_phone','bfp_address','safety_acknowledged','onboarding_completed'] as const
+export const registrationKeys = ['full_name','phone_number','home_name','address','home_latitude','home_longitude','device_id','stakeholder_name','stakeholder_relationship','stakeholder_phone','bfp_station_name','bfp_personnel_name','bfp_rank_position','bfp_phone','bfp_address','bfp_email','safety_acknowledged','onboarding_completed'] as const
 export function registrationData(raw: Record<string, unknown>) {
   return Object.fromEntries(registrationKeys.filter(key => raw[key] !== undefined).map(key => [key, raw[key]]))
 }

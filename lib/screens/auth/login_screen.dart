@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/login_lock_service.dart';
+import '../../services/biometric_lock_service.dart';
 import '../../services/verified_role_service.dart';
 import '../../services/mfa_service.dart';
 import '../../services/dual_sync_service.dart';
@@ -35,12 +36,38 @@ class _LoginScreenState extends State<LoginScreen> {
   Timer? _lockTimer;
 
   bool get _locked => _lockStatus.isLocked;
+  bool _fingerprintReady = false; // fingerprint sign-in saved on this phone
+
+  Future<void> _checkFingerprint() async {
+    final ready = await BiometricLockService.instance.canSignInWithFingerprint();
+    if (mounted) setState(() => _fingerprintReady = ready);
+  }
+
+  /// Panel: "add fingerprint para in case magkamali si user, maopen pa rin
+  /// ang account". Works even after wrong passwords locked the form.
+  Future<void> _fingerprintLogin() async {
+    final bio = BiometricLockService.instance;
+    if (!await bio.authenticate(reason: 'Sign in to PyroGuard with your fingerprint')) {
+      if (mounted) setState(() => _error = 'Fingerprint not recognized. Try again or use your password.');
+      return;
+    }
+    final saved = await bio.readLogin();
+    if (saved == null) {
+      await _checkFingerprint();
+      return;
+    }
+    _emailCt.text = saved.email;
+    _passCt.text = saved.password;
+    await _login(viaFingerprint: true);
+    if (mounted && Supabase.instance.client.auth.currentSession == null) _passCt.clear();
+  }
 
   @override
   void initState() {
     super.initState();
     _emailCt.addListener(_onEmailChanged);
     _restoreRememberedEmail();
+    _checkFingerprint();
     WidgetsBinding.instance.addPostFrameCallback((_) => _guardExistingSession());
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _lockStatus.lockedUntil == null) return;
@@ -109,13 +136,13 @@ class _LoginScreenState extends State<LoginScreen> {
         m.contains('user not found');
   }
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _login({bool viaFingerprint = false}) async {
+    if (!viaFingerprint && !_formKey.currentState!.validate()) return;
 
     final email = _emailCt.text.trim().toLowerCase();
     final before = await LoginLockService.statusFor(email);
     if (!mounted) return;
-    if (before.isLocked) {
+    if (before.isLocked && !viaFingerprint) {
       setState(() {
         _lockStatus = before;
         _error = _lockText(before);
@@ -138,6 +165,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.session == null || response.user == null) {
         throw const AuthException('Invalid login credentials');
       }
+      // Keep the saved fingerprint login up to date (e.g. after a password change).
+      if (!viaFingerprint && await BiometricLockService.instance.isEnabled()) {
+        await BiometricLockService.instance.saveLogin(email, _passCt.text);
+      }
+      if (viaFingerprint) await LoginLockService.clear(email);
 
       if (await MfaService.needsVerification()) {
         if (mounted) context.go('/mfa');
@@ -166,6 +198,15 @@ class _LoginScreenState extends State<LoginScreen> {
     } on AuthException catch (e) {
       if (!mounted) return;
 
+      if (viaFingerprint && _isCredentialFailure(e.message)) {
+        await BiometricLockService.instance.clearLogin();
+        await _checkFingerprint();
+        if (mounted) {
+          setState(() => _error = 'Your password was changed, so the saved fingerprint sign-in was removed. '
+              'Sign in with your password, then turn fingerprint on again in Security settings.');
+        }
+        return;
+      }
       if (_isCredentialFailure(e.message)) {
         final updated = await LoginLockService.registerFailure(email);
         if (!mounted) return;
@@ -424,6 +465,25 @@ class _LoginScreenState extends State<LoginScreen> {
                                     icon: _locked ? Icons.lock : Icons.login,
                                     onTap: _login,
                                   ),
+                                  if (_fingerprintReady) ...[
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        onPressed: _loading ? null : _fingerprintLogin,
+                                        icon: const Icon(Icons.fingerprint_rounded, size: 24),
+                                        label: Text(_locked
+                                            ? 'Locked? Sign in with fingerprint'
+                                            : 'Sign in with fingerprint'),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(vertical: 13),
+                                          foregroundColor: AppColors.orange,
+                                          side: BorderSide(color: AppColors.orange.withValues(alpha: .6)),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

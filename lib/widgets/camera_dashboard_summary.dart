@@ -85,8 +85,7 @@ class _CameraDashboardSummaryState extends State<CameraDashboardSummary> {
     required String title, required String subtitle, required IconData icon,
     required Color iconColor, required Widget body,
   }) => GlassPanel(
-    radius: 22, blur: 18, borderColor: AppColors.orange.withValues(alpha: .26),
-    tint: AppTheme.isDark(context) ? AppColors.darkCard.withValues(alpha: .66) : AppColors.lightCard.withValues(alpha: .68),
+    radius: 22, blur: 1.5, borderColor: AppColors.orange.withValues(alpha: .20),
     padding: const EdgeInsets.all(16),
     child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [

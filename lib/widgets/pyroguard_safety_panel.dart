@@ -74,16 +74,11 @@ class _PyroguardSafetyPanelState extends State<PyroguardSafetyPanel> {
   Widget build(BuildContext context) {
     final primary = AppTheme.textPrimary(context);
     final secondary = AppTheme.textSecondary(context);
-    // Plain solid box, NOT a GlassPanel: this sits inside the settings card,
-    // which is already a blurred glass panel, and a blur inside a blur renders
-    // washed-out with ghost text on Flutter web.
+    // Same glass card as the other panels (GlassStyle has no blur filter, so
+    // it does not cause the washed-out text of a blur inside a blur).
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.isDark(context) ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.orange.withValues(alpha: .35)),
-      ),
+      decoration: GlassStyle.card(light: !AppTheme.isDark(context)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('Notification Level & Daily Summary', style: TextStyle(color: primary, fontWeight: FontWeight.w800, fontSize: 16)),
         const SizedBox(height: 6),

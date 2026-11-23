@@ -93,6 +93,7 @@ class AccountBootstrapService {
             rankPosition: meta['bfp_rank_position']?.toString(),
             phone: (meta['bfp_phone'] ?? '').toString(),
             address: (meta['bfp_address'] ?? '').toString(),
+            email: meta['bfp_email']?.toString(),
           );
         }
 

@@ -424,16 +424,22 @@ class AppTheme {
         ),
         cardColor: AppColors.darkCard.withValues(alpha: .35),
         cardTheme: CardThemeData(
-          color: AppColors.darkCard, // solid: see-through menus were unreadable
-          surfaceTintColor: Colors.transparent,          elevation: 0,
+          color: AppColors.darkCard.withValues(alpha: .35),
+          elevation: 0,
           shape: RoundedRectangleBorder(
             side: BorderSide(color: Colors.white.withValues(alpha: .12)),
             borderRadius: BorderRadius.circular(18),
           ),
         ),
         dividerColor: AppColors.darkBorder,
+        // Solid dialogs: at 35% the page showed through and text was unreadable.
         dialogTheme: DialogThemeData(
-          backgroundColor: AppColors.darkCard.withValues(alpha: .35),
+          backgroundColor: AppColors.darkCard,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: AppColors.orange.withValues(alpha: .30)),
+            borderRadius: BorderRadius.circular(18),
+          ),
           titleTextStyle: const TextStyle(
               color: AppColors.textPrimary,
               fontSize: 20,
@@ -454,7 +460,7 @@ class AppTheme {
           textStyle: TextStyle(color: AppColors.textPrimary, fontSize: 12),
         ),
         popupMenuTheme: const PopupMenuThemeData(
-                    color: AppColors.darkCard, // solid: see-through menus were unreadable
+          color: AppColors.darkCard, // solid: see-through menus were unreadable
           surfaceTintColor: Colors.transparent,
           textStyle: TextStyle(color: AppColors.textPrimary),
         ),
@@ -586,8 +592,7 @@ class AppTheme {
         ),
         cardColor: Colors.white.withValues(alpha: .35),
         cardTheme: CardThemeData(
-                    color: Colors.white, // solid: see-through menus were unreadable
-          surfaceTintColor: Colors.transparent,
+          color: Colors.white.withValues(alpha: .35),
           elevation: 0,
           shape: RoundedRectangleBorder(
             side: const BorderSide(color: AppColors.lightBorder),
@@ -596,7 +601,12 @@ class AppTheme {
         ),
         dividerColor: AppColors.lightBorder,
         dialogTheme: DialogThemeData(
-          backgroundColor: Colors.white.withValues(alpha: .35),
+          backgroundColor: AppColors.lightCard,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: AppColors.orange.withValues(alpha: .30)),
+            borderRadius: BorderRadius.circular(18),
+          ),
           titleTextStyle: const TextStyle(
               color: AppColors.lightTextPrimary,
               fontSize: 20,
@@ -750,8 +760,10 @@ class PhoenixBackdrop extends StatelessWidget {
             alignment: Alignment.center,
             child: SizedBox.square(
               dimension: phoenixSize,
+              // Faint watermark (panel feedback): the logo must never compete
+              // with text, sensor values or controls on top of it.
               child: Opacity(
-                opacity: dark ? .32 : .43,
+                opacity: dark ? .06 : .07,
                 child: Image.asset(
                   PyroGuardBrandAssets.phoenix,
                   fit: BoxFit.contain,

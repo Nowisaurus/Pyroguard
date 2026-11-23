@@ -37,3 +37,8 @@ android/key.properties
 *.jks
 macos/Flutter/ephemeral/
 
+
+# Local build caches
+android/.gradle/
+**/flutter/ephemeral/
+V1*_FILES_GUIDE.txt

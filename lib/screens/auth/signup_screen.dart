@@ -53,6 +53,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _bfpRankCt = TextEditingController();
   final _bfpPhoneCt = TextEditingController();
   final _bfpAddressCt = TextEditingController();
+  final _bfpEmailCt = TextEditingController();
 
   bool _obscurePass = true;
   bool _obscureConf = true;
@@ -138,6 +139,7 @@ class _SignupScreenState extends State<SignupScreen> {
       _bfpRankCt,
       _bfpPhoneCt,
       _bfpAddressCt,
+      _bfpEmailCt,
     ]) {
       c.dispose();
     }
@@ -179,6 +181,10 @@ class _SignupScreenState extends State<SignupScreen> {
       }
       if (_bfpAddressCt.text.trim().isEmpty) {
         return 'Enter the BFP station address.';
+      }
+      if (_bfpEmailCt.text.trim().isNotEmpty &&
+          !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(_bfpEmailCt.text.trim())) {
+        return 'Enter a valid BFP e-mail address or leave it blank.';
       }
       if (!_safetyAcknowledged) {
         return 'Confirm the safety acknowledgment to continue.';
@@ -291,6 +297,7 @@ class _SignupScreenState extends State<SignupScreen> {
         'bfp_rank_position': _bfpRankCt.text.trim(),
         'bfp_phone': PhilippinePhone.normalize(_bfpPhoneCt.text),
         'bfp_address': _bfpAddressCt.text.trim(),
+        'bfp_email': _bfpEmailCt.text.trim().toLowerCase(),
         'safety_acknowledged': true,
         'onboarding_completed': false,
         'role': 'homeowner',
@@ -668,6 +675,14 @@ class _SignupScreenState extends State<SignupScreen> {
                 icon: Icons.map_outlined,
                 maxLines: 2,
                 onChanged: (_) => setState(() {})),
+            const SizedBox(height: 12),
+            _Field(
+                controller: _bfpEmailCt,
+                label: 'BFP Station E-mail (optional, for incident reports)',
+                icon: Icons.alternate_email_rounded,
+                keyboardType: TextInputType.emailAddress,
+                textCapitalization: TextCapitalization.none,
+                onChanged: (_) => setState(() {})),
             const SizedBox(height: 14),
             CheckboxListTile(
               value: _safetyAcknowledged,
@@ -723,7 +738,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   ? 'Not provided'
                   : _bfpPersonnelCt.text.trim(),
               'Phone': _bfpPhoneCt.text.trim(),
-              'Address': _bfpAddressCt.text.trim()
+              'Address': _bfpAddressCt.text.trim(),
+              'E-mail': _bfpEmailCt.text.trim().isEmpty
+                  ? 'Not provided'
+                  : _bfpEmailCt.text.trim()
             }),
             const SizedBox(height: 12),
             Container(

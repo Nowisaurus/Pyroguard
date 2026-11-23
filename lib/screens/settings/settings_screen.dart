@@ -1,4 +1,5 @@
 import '../support/support_tickets_page.dart';
+import 'home_walkthrough_page.dart';
 import '../../services/philippine_phone.dart';
 // ignore_for_file: use_build_context_synchronously
 
@@ -126,7 +127,8 @@ class _SettingsTabState extends State<SettingsTab> {
                           const SizedBox(height: 8),
                           _SettingsCard(children: [
                             _nav(Icons.health_and_safety_outlined, 'Safety Setup', 'Entry delay, siren duration and AI assist', () => _open(SafetySetupSettingsPage(initial: safety))),
-                            _nav(Icons.local_fire_department_outlined, 'BFP Contact Details', bfp['station_name']?.toString().trim().isNotEmpty == true ? '${bfp['station_name']} · ${bfp['phone'] ?? ''}' : 'Station, personnel, number and address', () => _open(BfpSettingsPage(initial: bfp))),
+                            _nav(Icons.local_fire_department_outlined, 'BFP Contact Details', bfp['station_name']?.toString().trim().isNotEmpty == true ? '${bfp['station_name']} · ${bfp['phone'] ?? ''}' : 'Station, personnel, number, address and e-mail', () => _open(BfpSettingsPage(initial: bfp))),
+                            _nav(Icons.directions_walk_outlined, 'Home Walkthrough & Fire Exits', '3D tour of the house with the standard evacuation plan', () => _open(const HomeWalkthroughPage())),
                             _nav(Icons.notifications_outlined, 'Notifications', 'Push, email and optional SMS preferences', () => _open(NotificationsSettingsPage(initial: _section('preferences')))),
                             _nav(Icons.shield_outlined, 'Devices & Security Controls', 'ARM AWAY / ARM HOME / DISARM + door/window controls', () => _open(DeviceSecuritySettingsPage(initial: _section('device')))),
                           ]),
@@ -329,7 +331,7 @@ class _SafetySetupSettingsPageState extends _SettingsPageState<SafetySetupSettin
 
 class BfpSettingsPage extends StatefulWidget { const BfpSettingsPage({super.key,required this.initial}); final Map<String,dynamic> initial; @override State<BfpSettingsPage> createState()=>_BfpSettingsPageState(); }
 class _BfpSettingsPageState extends _SettingsPageState<BfpSettingsPage> {
-  late final TextEditingController station, personnel, rank, phone, address;
+  late final TextEditingController station, personnel, rank, phone, address, email;
   bool confirmed = true;
 
   @override
@@ -340,6 +342,7 @@ class _BfpSettingsPageState extends _SettingsPageState<BfpSettingsPage> {
     rank = TextEditingController(text: widget.initial['rank_position']?.toString() ?? '');
     phone = TextEditingController(text: widget.initial['phone']?.toString() ?? '');
     address = TextEditingController(text: widget.initial['address']?.toString() ?? '');
+    email = TextEditingController(text: widget.initial['email']?.toString() ?? '');
     confirmed = widget.initial['is_confirmed'] as bool? ?? true;
   }
 
@@ -350,6 +353,7 @@ class _BfpSettingsPageState extends _SettingsPageState<BfpSettingsPage> {
     rank.dispose();
     phone.dispose();
     address.dispose();
+    email.dispose();
     super.dispose();
   }
 
@@ -369,6 +373,7 @@ class _BfpSettingsPageState extends _SettingsPageState<BfpSettingsPage> {
             rankPosition: rank.text,
             phone: phone.text,
             address: address.text,
+            email: email.text,
             confirmed: confirmed,
           );
           await NotificationService.loadBfpContact();
@@ -393,6 +398,18 @@ class _BfpSettingsPageState extends _SettingsPageState<BfpSettingsPage> {
             ),
             const SizedBox(height: 12),
             TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'Station Address', prefixIcon: Icon(Icons.location_city_outlined))),
+            const SizedBox(height: 12),
+            TextField(
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'BFP Station E-mail (for incident reports)',
+                helperText: 'Incident report PDFs are sent here from Incident Logs. Leave blank if the station has none.',
+                helperMaxLines: 2,
+                prefixIcon: Icon(Icons.alternate_email_rounded),
+              ),
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Contact details reviewed by user'),

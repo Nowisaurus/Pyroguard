@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import '../../services/sensor_service.dart';
+
 import '../../services/location_service.dart';
+import '../../services/room_sensor_service.dart';
 import '../../theme.dart';
+import '../../widgets/home_layout_panel.dart';
+import '../../widgets/pg_ui.dart';
 import '../dashboard/shared_app_bar.dart';
 
+/// Live Map: the registered home on a real street map with its real address,
+/// the live state of every room (from the room sensors), and the home floor
+/// plan with the evacuation route. The fire history moved to Events.
 class MapTab extends StatefulWidget {
   const MapTab({super.key});
   @override
@@ -15,396 +22,367 @@ class MapTab extends StatefulWidget {
 }
 
 class _MapTabState extends State<MapTab> {
+  final _rooms = RoomSensorService.instance;
+  final _map = MapController();
   Map<String, dynamic> _home = const {};
-  String? _resolvedAddress;
-  double? _resolvedLat;
-  double? _resolvedLng;
-  bool _resolvingAddress = false;
+  bool _ownHome = false;
+  String? _gpsAddress;
+  bool _loadingHome = true;
+  static final _time = DateFormat('h:mm:ss a');
+
   @override
   void initState() {
     super.initState();
-    SensorService.instance.addListener(_rebuild);
+    _rooms.addListener(_changed);
+    _rooms.start();
     _loadHome();
   }
 
   @override
   void dispose() {
-    SensorService.instance.removeListener(_rebuild);
+    _rooms.removeListener(_changed);
     super.dispose();
   }
 
-  void _rebuild() {
-    if (!mounted) return;
-    setState(() {});
-    _resolveActiveAddress();
+  void _changed() {
+    if (mounted) setState(() {});
   }
 
-  Future<void> _resolveActiveAddress() async {
-    final sensorService = SensorService.instance;
-    final sensor = sensorService.realtimeHeartbeat == HeartbeatState.offline
-        ? null
-        : sensorService.latest;
-    final user = Supabase.instance.client.auth.currentUser;
-    final meta = user?.userMetadata ?? const <String, dynamic>{};
-    final homeLat = (_home['latitude'] as num?)?.toDouble() ??
-        (meta['home_latitude'] as num?)?.toDouble();
-    final homeLng = (_home['longitude'] as num?)?.toDouble() ??
-        (meta['home_longitude'] as num?)?.toDouble();
-    final lat = sensor?.deviceLat ?? homeLat;
-    final lng = sensor?.deviceLng ?? homeLng;
-    if (lat == null || lng == null || _resolvingAddress) return;
-    if (_resolvedLat == lat && _resolvedLng == lng && _resolvedAddress != null) return;
-    _resolvingAddress = true;
-    try {
-      final address = await LocationService.resolvePlaceName(lat, lng);
-      if (!mounted) return;
-      setState(() {
-        _resolvedAddress = address;
-        _resolvedLat = lat;
-        _resolvedLng = lng;
-      });
-    } finally {
-      _resolvingAddress = false;
-    }
-  }
+  SupabaseClient get _db => Supabase.instance.client;
+
+  double? get _lat => (_home['latitude'] as num?)?.toDouble() ??
+      double.tryParse('${_db.auth.currentUser?.userMetadata?['home_latitude'] ?? ''}');
+  double? get _lng => (_home['longitude'] as num?)?.toDouble() ??
+      double.tryParse('${_db.auth.currentUser?.userMetadata?['home_longitude'] ?? ''}');
 
   Future<void> _loadHome() async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final uid = _db.auth.currentUser?.id;
     if (uid == null) return;
     try {
-      final db = Supabase.instance.client;
-      // Own home first; otherwise the shared Home 1 this account belongs to.
-      var row = await db.from('homes').select().eq('user_id', uid).maybeSingle();
+      var row = await _db.from('homes').select().eq('user_id', uid).maybeSingle();
+      _ownHome = row != null;
       if (row == null) {
-        final memberships = await db.from('pyroguard_home_members')
-            .select('home_id').eq('user_id', uid)
-            .eq('membership_status', 'approved').limit(1);
-        if (memberships.isNotEmpty) {
-          row = await db.from('homes').select()
-              .eq('id', memberships.first['home_id']).maybeSingle();
-        }
+        final m = await _db.from('pyroguard_home_members').select('home_id')
+            .eq('user_id', uid).eq('membership_status', 'approved').limit(1);
+        if (m.isNotEmpty) row = await _db.from('homes').select().eq('id', m.first['home_id']).maybeSingle();
       }
-      final found = row;
-      if (mounted && found != null) {
-        setState(() => _home = Map<String, dynamic>.from(found));
-        await _resolveActiveAddress();
-      }
-    } catch (_) {
-      // Signup metadata fallback below keeps the page usable before migration.
+      if (row != null) _home = Map<String, dynamic>.from(row);
+    } catch (_) {}
+    if (mounted) setState(() => _loadingHome = false);
+    final lat = _lat, lng = _lng;
+    if (lat != null && lng != null) {
+      try {
+        final a = await LocationService.resolvePlaceName(lat, lng);
+        if (mounted) setState(() => _gpsAddress = a);
+      } catch (_) {}
     }
   }
 
-  Future<void> _openInMaps(double lat, double lng) async {
-    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
+  /// Owner sets the real home pin and address (tap map or use phone GPS).
+  Future<void> _editLocation() async {
+    if (!_ownHome || _home['id'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Only the home owner can change the home location.')));
+      return;
+    }
+    var point = LatLng(_lat ?? 14.6510, _lng ?? 120.9674);
+    final address = TextEditingController(text: '${_home['address'] ?? ''}');
+    final barangay = TextEditingController(text: '${_home['barangay'] ?? ''}');
+    final city = TextEditingController(text: '${_home['city'] ?? ''}');
+    final dialogMap = MapController();
+    var busy = false;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        Future<void> fill(LatLng p) async {
+          setD(() {
+            point = p;
+            busy = true;
+          });
+          try {
+            address.text = await LocationService.resolvePlaceName(p.latitude, p.longitude);
+          } catch (_) {}
+          setD(() => busy = false);
+        }
+
+        return AlertDialog(
+          backgroundColor: AppTheme.isDark(ctx) ? AppColors.darkCard : Colors.white,
+          surfaceTintColor: Colors.transparent,
+          title: const Text('Home location'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('Tap the exact house on the map, or use this phone\'s GPS while at home.',
+                    style: TextStyle(color: AppTheme.textSecondary(ctx), fontSize: 12)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 240,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: FlutterMap(
+                      mapController: dialogMap,
+                      options: MapOptions(initialCenter: point, initialZoom: 17, onTap: (_, p) => fill(p)),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.pyroguard.app',
+                        ),
+                        MarkerLayer(markers: [
+                          Marker(point: point, width: 40, height: 40,
+                              child: const Icon(Icons.location_on, color: AppColors.red, size: 38)),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          try {
+                            final pos = await LocationService.getCurrentPosition();
+                            final p = LatLng(pos.latitude, pos.longitude);
+                            dialogMap.move(p, 18);
+                            await fill(p);
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('GPS not available: $e')));
+                            }
+                          }
+                        },
+                  child: Text(busy ? 'Finding address...' : 'Use my current location'),
+                ),
+                const SizedBox(height: 8),
+                TextField(controller: address, maxLines: 2, decoration: const InputDecoration(labelText: 'House no., street, subdivision')),
+                Row(children: [
+                  Expanded(child: TextField(controller: barangay, decoration: const InputDecoration(labelText: 'Barangay'))),
+                  const SizedBox(width: 10),
+                  Expanded(child: TextField(controller: city, decoration: const InputDecoration(labelText: 'City'))),
+                ]),
+                const SizedBox(height: 6),
+                Text('${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}',
+                    style: TextStyle(color: AppTheme.textSecondary(ctx), fontSize: 11.5, fontFamily: 'monospace')),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: busy ? null : () => Navigator.pop(ctx, true), child: const Text('Save location')),
+          ],
+        );
+      }),
+    );
+    if (ok != true) return;
+    try {
+      await _db.from('homes').update({
+        'latitude': point.latitude,
+        'longitude': point.longitude,
+        'address': address.text.trim().isEmpty ? null : address.text.trim(),
+        'barangay': barangay.text.trim().isEmpty ? null : barangay.text.trim(),
+        'city': city.text.trim().isEmpty ? null : city.text.trim(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', _home['id']);
+      await _loadHome();
+      try {
+        _map.move(point, 17);
+      } catch (_) {}
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Home location saved.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save: $e')));
+    }
+  }
+
+  Future<void> _open(String url) async {
+    final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _openOSM(double lat, double lng) async {
-    final uri = Uri.parse('https://www.openstreetmap.org/?mlat=$lat&mlon=$lng&zoom=16');
-    if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+  /// Latest reading time over all rooms (for the "Live" label).
+  DateTime? get _lastUpdate {
+    DateTime? best;
+    for (final c in RoomSensorService.controllerIds) {
+      for (final r in RoomSensorService.roomsFor(c)) {
+        final t = DateTime.tryParse('${_rooms.reading(c, r)?['received_at'] ?? ''}')?.toLocal();
+        if (t != null && (best == null || t.isAfter(best))) best = t;
+      }
+    }
+    return best;
   }
 
   @override
   Widget build(BuildContext context) {
-    final sensorService = SensorService.instance;
-    final sensor = sensorService.realtimeHeartbeat == HeartbeatState.offline ? null : sensorService.latest;
-    final isFire = sensor?.isCriticalFire ?? false;
-    final user = Supabase.instance.client.auth.currentUser;
-    final meta = user?.userMetadata ?? const <String, dynamic>{};
-    final homeLat = (_home['latitude'] as num?)?.toDouble() ?? (meta['home_latitude'] as num?)?.toDouble();
-    final homeLng = (_home['longitude'] as num?)?.toDouble() ?? (meta['home_longitude'] as num?)?.toDouble();
-    // Live device GPS wins only while the hardware telemetry is fresh.
-    final lat = sensor?.deviceLat ?? homeLat;
-    final lng = sensor?.deviceLng ?? homeLng;
-    final usingDeviceGps = sensor?.deviceLat != null;
-    final locTxt = (_resolvedAddress ?? _home['address'] ?? meta['address'] ?? 'Location not set').toString();
-    final uName = (meta['full_name'] ?? 'User').toString();
+    final fire = _rooms.verifiedFireEmergency;
+    final lat = _lat, lng = _lng;
+    final primary = AppTheme.textPrimary(context);
+    final secondary = AppTheme.textSecondary(context);
+    final last = _lastUpdate;
+    final live = last != null && DateTime.now().difference(last).inSeconds < 90;
+    final registered = [
+      '${_home['address'] ?? ''}'.trim(),
+      '${_home['barangay'] ?? ''}'.trim(),
+      '${_home['city'] ?? ''}'.trim(),
+    ].where((s) => s.isNotEmpty).join(', ');
+
+    // Live room states.
+    final roomStates = <(String, String, String, Color)>[];
+    for (final c in RoomSensorService.controllerIds) {
+      for (final r in RoomSensorService.roomsFor(c)) {
+        final row = _rooms.reading(c, r);
+        final fresh = _rooms.fresh(c, r);
+        String state;
+        Color color;
+        if (fire != null && fire.controller == c && fire.room == r) {
+          state = 'FIRE';
+          color = AppColors.red;
+        } else if (!fresh || row == null) {
+          state = 'Offline';
+          color = AppColors.maroonMid;
+        } else if ('${row['smoke_status']}'.toUpperCase() == 'ALARM' || row['flame_detected'] == true) {
+          state = 'Warning';
+          color = AppColors.amber;
+        } else {
+          state = 'Safe';
+          color = AppColors.green;
+        }
+        final temp = row?['temperature'] is num ? '${(row!['temperature'] as num).toStringAsFixed(1)} °C' : '--';
+        roomStates.add((RoomSensorService.label(c, r), state, temp, color));
+      }
+    }
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PyroAppBar(
         title: 'Live Map',
-        subtitle: isFire ? 'Emergency location ready for response' : 'Registered home / live device location',
+        subtitle: fire != null
+            ? 'FIRE in ${RoomSensorService.label(fire.controller, fire.room)} - follow the evacuation guide'
+            : 'Home location, live room status and evacuation guide',
       ),
-      body: Column(children: [
-        // Fire alert banner
-        if (isFire)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: AppColors.red,
-            child: const Row(children: [
-              Icon(Icons.local_fire_department, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text('FIRE DETECTED — Saved home/device location is ready for the manual CALL BFP workflow.',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))),
-            ]),
-          ),
-
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(14),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 96),
+        children: [
+          // Location + live map
+          PgCard(
+            accent: fire != null ? AppColors.red : null,
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-
-              // Location card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppTheme.card(context),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: isFire ? AppColors.red.withValues(alpha: 0.4) : AppColors.orange.withValues(alpha: 0.15)),
-                  boxShadow: [BoxShadow(color: (isFire ? AppColors.red : AppColors.orange).withValues(alpha: 0.1), blurRadius: 16, offset: const Offset(0, 4))],
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: (isFire ? AppColors.red : AppColors.orange).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(isFire ? Icons.local_fire_department : Icons.location_on,
-                          color: isFire ? AppColors.red : AppColors.orange, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(isFire ? 'Fire Location' : 'Registered Location',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.textPrimary(context))),
-                      Text(uName, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary(context))),
-                    ])),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: (isFire ? AppColors.red : AppColors.green).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(isFire ? 'ALERT' : 'SAFE',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900,
-                              color: isFire ? AppColors.red : AppColors.green)),
-                    ),
-                  ]),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppTheme.card(context),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [Icon(Icons.home_work_outlined, size: 15, color: AppTheme.textSecondary(context)), const SizedBox(width: 6), Text('Address', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textSecondary(context)))]),
-                      const SizedBox(height: 4),
-                      Text(locTxt, style: TextStyle(fontSize: 13, color: AppTheme.textPrimary(context), height: 1.4)),
-                      if (lat != null && lng != null) ...[
-                        const SizedBox(height: 8),
-                        Row(children: [Icon(Icons.my_location_outlined, size: 15, color: AppTheme.textSecondary(context)), const SizedBox(width: 6), Text('GPS Coordinates', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppTheme.textSecondary(context)))]),
-                        const SizedBox(height: 4),
-                        Text('${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
-                            style: TextStyle(fontSize: 12, color: AppTheme.brandForeground(context), fontFamily: 'monospace', fontWeight: FontWeight.w700)),
-                      ],
-                    ]),
-                  ),
-                ]),
+              PgHeader(
+                icon: Icons.location_on_outlined,
+                title: fire != null ? 'Fire location' : 'Home location',
+                actions: [
+                  PgBadge(live ? 'LIVE · ${_time.format(last)}' : 'NO LIVE DATA',
+                      color: live ? AppColors.green : AppColors.maroonMid),
+                  const SizedBox(width: 6),
+                  if (_ownHome) TextButton(onPressed: _editLocation, child: const Text('Edit')),
+                ],
               ),
-
-              const SizedBox(height: 14),
-
-              // Map preview (static + link)
-              if (lat != null && lng != null) ...[
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppTheme.card(context),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.border(context)),
+              const SizedBox(height: 8),
+              if (_loadingHome) const LinearProgressIndicator(color: AppColors.orange),
+              Text(registered.isEmpty ? 'Address not set' : registered,
+                  style: TextStyle(color: primary, fontWeight: FontWeight.w700, fontSize: 13.5, height: 1.35)),
+              if (_gpsAddress != null && _gpsAddress != registered)
+                Text('Map address: $_gpsAddress', style: TextStyle(color: secondary, fontSize: 12)),
+              if (lat != null && lng != null)
+                Text('GPS ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
+                    style: TextStyle(color: AppTheme.brandForeground(context), fontSize: 12, fontFamily: 'monospace')),
+              const SizedBox(height: 10),
+              if (lat == null || lng == null)
+                PgTile(
+                  child: Text(
+                    _ownHome
+                        ? 'No location saved yet. Tap Edit to pin the house on the map.'
+                        : 'The home owner has not saved the home location yet.',
+                    style: TextStyle(color: secondary, fontSize: 12.5),
                   ),
-                  clipBehavior: Clip.hardEdge,
-                  child: Column(children: [
-                    // Real embedded map (OpenStreetMap tiles — no API
-                    // key needed), not just a placeholder box.
-                    SizedBox(
-                      height: 260,
-                      child: Stack(
-                        children: [
-                          FlutterMap(
-                            options: MapOptions(
-                              initialCenter: LatLng(lat, lng),
-                              initialZoom: 16,
+                )
+              else ...[
+                SizedBox(
+                  height: 260,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: FlutterMap(
+                      mapController: _map,
+                      options: MapOptions(initialCenter: LatLng(lat, lng), initialZoom: 17),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.pyroguard.app',
+                        ),
+                        if (fire != null)
+                          CircleLayer(circles: [
+                            CircleMarker(
+                              point: LatLng(lat, lng),
+                              radius: 60,
+                              useRadiusInMeter: true,
+                              color: AppColors.red.withValues(alpha: .18),
+                              borderColor: AppColors.red,
+                              borderStrokeWidth: 2,
                             ),
-                            children: [
-                              TileLayer(
-                                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                userAgentPackageName: 'com.pyroguard.app',
-                              ),
-                              MarkerLayer(markers: [
-                                Marker(
-                                  point: LatLng(lat, lng),
-                                  width: 44,
-                                  height: 44,
-                                  child: Icon(
-                                    Icons.location_pin,
-                                    color: isFire ? AppColors.red : AppColors.orange,
-                                    size: 44,
-                                  ),
-                                ),
-                              ]),
-                            ],
+                          ]),
+                        MarkerLayer(markers: [
+                          Marker(
+                            point: LatLng(lat, lng),
+                            width: 42,
+                            height: 42,
+                            child: Icon(Icons.location_on, color: fire != null ? AppColors.red : AppColors.orange, size: 40),
                           ),
-                          if (isFire)
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: Container(
-                                  color: AppColors.red.withValues(alpha: 0.1),
-                                  child: Align(
-                                    alignment: Alignment.topCenter,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 10),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.red,
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.local_fire_department_outlined, color: Colors.white, size: 16), SizedBox(width: 6), Text('FIRE LOCATION', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12))]),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (usingDeviceGps)
-                            Positioned(
-                              left: 8, bottom: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Text('Live device GPS', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                              ),
-                            ),
-                        ],
-                      ),
+                        ]),
+                      ],
                     ),
-
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(children: [
-                        Expanded(child: _MapBtn(
-                          icon: Icons.map,
-                          label: 'Google Maps',
-                          color: AppColors.orange,
-                          onTap: () => _openInMaps(lat, lng),
-                        )),
-                        const SizedBox(width: 10),
-                        Expanded(child: _MapBtn(
-                          icon: Icons.public,
-                          label: 'OpenStreetMap',
-                          color: AppColors.maroonMid,
-                          onTap: () => _openOSM(lat, lng),
-                        )),
-                      ]),
-                    ),
-                  ]),
-                ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppTheme.card(context),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.orange.withValues(alpha: 0.2)),
                   ),
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Icon(Icons.location_off_outlined, size: 60, color: AppTheme.brandForeground(context)),
-                    const SizedBox(height: 12),
-                    Text('No coordinates saved', style: TextStyle(color: AppTheme.textPrimary(context), fontSize: 15, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    Text('Update your location in your profile to enable map tracking.',
-                        style: TextStyle(color: AppTheme.textSecondary(context), fontSize: 12, height: 1.4), textAlign: TextAlign.center),
-                  ]),
                 ),
-              ],
-
-              const SizedBox(height: 14),
-
-              // Sensor summary
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.card(context),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.border(context)),
-                ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Live Sensor Status', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.textPrimary(context))),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    _SensorChip(label: 'Smoke', value: '${sensor?.smokeLevel.toStringAsFixed(0) ?? '--'}%', color: sensor?.smokeLevel != null && sensor!.smokeLevel >= 70 ? AppColors.red : AppColors.orange),
-                    const SizedBox(width: 8),
-                    _SensorChip(label: 'Temp', value: '${sensor?.temperature.toStringAsFixed(1) ?? '--'}°C', color: AppColors.orange),
-                    const SizedBox(width: 8),
-                    _SensorChip(label: 'Flame', value: sensor?.flameStatus == true ? 'YES' : 'None', color: sensor?.flameStatus == true ? AppColors.red : AppColors.green),
-                  ]),
-                  const SizedBox(height: 8),
-                  Text(
-                    'The saved home pin is stored with your setup and shown during emergency review. PyroGuard does not claim automatic BFP dispatch.',
-                    style: TextStyle(fontSize: 10, color: AppTheme.textSecondary(context), height: 1.4),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _open('https://www.google.com/maps/search/?api=1&query=$lat,$lng'),
+                      child: const Text('Open in Google Maps'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _open('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng'),
+                      child: const Text('Directions'),
+                    ),
                   ),
                 ]),
-              ),
+              ],
             ]),
           ),
-        ),
-      ]),
+          const SizedBox(height: 14),
+          // Live room status
+          PgCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const PgHeader(icon: Icons.sensors_outlined, title: 'Live room status'),
+              const SizedBox(height: 8),
+              LayoutBuilder(builder: (context, b) {
+                final w = b.maxWidth >= 520 ? (b.maxWidth - 24) / 4 : (b.maxWidth - 8) / 2;
+                return Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final s in roomStates)
+                    SizedBox(
+                      width: w,
+                      child: PgTile(
+                        color: s.$4,
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(s.$1, style: TextStyle(color: primary, fontWeight: FontWeight.w800, fontSize: 12.5)),
+                          const SizedBox(height: 2),
+                          Text(s.$2,
+                              style: TextStyle(
+                                  color: AppTheme.statusForeground(context, s.$4), fontWeight: FontWeight.w900, fontSize: 13)),
+                          Text(s.$3, style: TextStyle(color: secondary, fontSize: 11.5)),
+                        ]),
+                      ),
+                    ),
+                ]);
+              }),
+            ]),
+          ),
+          const SizedBox(height: 14),
+          // Floor plan + evacuation guide (live)
+          HomeLayoutPanel(homeLat: lat, homeLng: lng),
+        ],
+      ),
     );
   }
-}
-
-class _MapBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  const _MapBtn({required this.icon, required this.label, required this.color, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, color: AppTheme.statusForeground(context, color), size: 16),
-        const SizedBox(width: 6),
-        Text(label, style: TextStyle(color: AppTheme.statusForeground(context, color), fontWeight: FontWeight.w800, fontSize: 12)),
-      ]),
-    ),
-  );
-}
-
-class _SensorChip extends StatelessWidget {
-  final String label, value;
-  final Color color;
-  const _SensorChip({required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Column(children: [
-        Text(label, style: TextStyle(fontSize: 9, color: AppTheme.textSecondary(context), fontWeight: FontWeight.w600)),
-        const SizedBox(height: 2),
-        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: AppTheme.statusForeground(context, color))),
-      ]),
-    ),
-  );
 }

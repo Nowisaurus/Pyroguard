@@ -16,6 +16,7 @@ import 'system_status_strip.dart';
 import 'overall_sensor_overview.dart';
 import 'room_sensor_panel.dart';
 import '../../widgets/door_window_activity_panel.dart';
+import '../../widgets/sensor_health_summary_card.dart';
 import '../../services/room_sensor_service.dart';
 
 class DashboardTab extends StatefulWidget {
@@ -159,6 +160,9 @@ class _DashboardTabState extends State<DashboardTab> {
                       OverallSensorOverview(data: _dualSnapshot),
                       const SizedBox(height: 14),
                       const RoomSensorPanel(),
+                      const SizedBox(height: 12),
+                      // Sensor health at a glance (defense panel suggestion).
+                      const SensorHealthSummaryCard(),
                       const SizedBox(height: 12),
                       const DoorWindowActivityPanel(limit: 6),
                       const SizedBox(height: 18),
@@ -390,6 +394,16 @@ class _SecurityControlsPanel extends StatelessWidget {
             if (narrow) return Column(children: [door, window, motion]);
             return Row(children: [Expanded(child: door), const SizedBox(width: 8), Expanded(child: window), const SizedBox(width: 8), Expanded(child: motion)]);
           }),
+          const SizedBox(height: 4),
+          // Panel suggestion: arm the door and the window separately.
+          Text(
+            security.doorEnabled && !security.windowEnabled
+                ? 'Door armed, window not: you can keep the windows open for air while the door stays protected.'
+                : !security.doorEnabled && security.windowEnabled
+                    ? 'Window armed, door not: the door can be used while the windows stay protected.'
+                    : 'Tip: switch off Window Protection to keep a window open while the door stays armed.',
+            style: TextStyle(color: AppTheme.textSecondary(context), fontSize: 10.5, height: 1.35),
+          ),
           const SizedBox(height: 5),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Icon(Icons.local_fire_department_outlined, color: AppTheme.dangerForeground(context), size: 15),

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../widgets/door_window_activity_panel.dart';
+import '../../widgets/cost_estimate_panel.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/camera_service.dart';
 import '../../services/camera_telemetry_service.dart';
@@ -124,6 +125,8 @@ class _DeviceTabState extends State<DeviceTab> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
           children: [
             const RoomSensorPanel(),
+            const SizedBox(height: 14),
+            const CostEstimatePanel(),
             const SizedBox(height: 14),
             ControllerDetailCard(controller: _dualSnapshot?.main, title: 'Main ESP32 (ESP32-001) — Detailed Sensors'),
             const SizedBox(height: 12),

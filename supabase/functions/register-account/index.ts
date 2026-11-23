@@ -31,6 +31,11 @@ Deno.serve(async (req: { method: string; json: () => any }) => {
       if(value !== null && !['string','number','boolean'].includes(typeof value))return json({error:`Invalid ${key}`},400)
       if(typeof value==='string' && value.length>2000)return json({error:`${key} is too long`},400)
     }
+    if(metadata.bfp_email!=null && metadata.bfp_email!==''){
+      const bfpEmail=String(metadata.bfp_email).trim().toLowerCase()
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bfpEmail) || bfpEmail.length>254)return json({error:'Enter a valid BFP e-mail address or leave it blank.'},400)
+      metadata.bfp_email=bfpEmail
+    }
     for (const key of ['phone_number','stakeholder_phone','bfp_phone']) {
       const value=metadata[key]
       if(value==null || value==='')continue

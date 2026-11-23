@@ -221,8 +221,13 @@ class SettingsService {
     required String address,
     String? personnelName,
     String? rankPosition,
+    String? email,
     bool confirmed = true,
   }) async {
+    final cleanEmail = (email ?? '').trim().toLowerCase();
+    if (cleanEmail.isNotEmpty && !isValidEmail(cleanEmail)) {
+      throw ArgumentError('Enter a valid BFP e-mail address (example: bfp.station@gmail.com) or leave it blank.');
+    }
     final existing = await _db.from('emergency_contacts').select('id').eq('user_id', userId).eq('is_primary', true).maybeSingle();
     final data = {
       'user_id': userId,
@@ -232,6 +237,8 @@ class SettingsService {
       'rank_position': rankPosition?.trim(),
       'phone': PhilippinePhone.normalize(phone),
       'address': address.trim(),
+      // Used to e-mail incident report PDFs to the station (v17).
+      'email': cleanEmail.isEmpty ? null : cleanEmail,
       'is_primary': true,
       'is_confirmed': confirmed,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
@@ -264,6 +271,9 @@ class SettingsService {
       'confirmed': confirmed,
     });
   }
+
+  static bool isValidEmail(String value) =>
+      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim()) && value.trim().length <= 254;
 
   Future<void> saveSafety({
     required bool acknowledged,

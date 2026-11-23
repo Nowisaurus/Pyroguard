@@ -81,14 +81,10 @@ class _MotionEventsPanelState extends State<MotionEventsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = AppTheme.isDark(context);
     return GlassPanel(
       radius: 22,
-      blur: 18,
-      borderColor: AppColors.orange.withValues(alpha: .26),
-      tint: dark
-          ? AppColors.darkCard.withValues(alpha: .66)
-          : AppColors.lightCard.withValues(alpha: .68),
+      blur: 1.5,
+      borderColor: AppColors.orange.withValues(alpha: .20),
       padding: const EdgeInsets.all(16),
       child: Column(
         mainAxisSize: widget.fill ? MainAxisSize.max : MainAxisSize.min,

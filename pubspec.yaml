@@ -30,6 +30,15 @@ dependencies:
   intl: ^0.20.3
   video_player: ^2.9.2
   uuid: ^4.5.1
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  local_auth: ^2.3.0
+  crypto: ^3.0.3
+  flutter_secure_storage: ^9.2.2
+
+# image (used by the PDF package) needs a newer archive than some packages pin.
+dependency_overrides:
+  archive: ^4.6.0
 
 dev_dependencies:
   flutter_test:
@@ -43,6 +52,10 @@ flutter:
     - assets/images/logo.jpg
     - assets/images/phonix_logo.png
     - assets/images/logo_phoenix.png
+    - assets/images/floorplan.png
+    - assets/images/evacuation_plan_standard.png
+    - assets/video/house_walkthrough.mp4
+    - assets/video/house_walkthrough_poster.jpg
     - assets/tutorial/narration/
     - assets/tutorial/transparent/
     - assets/tutorial/transparent/benediktuspaktus/

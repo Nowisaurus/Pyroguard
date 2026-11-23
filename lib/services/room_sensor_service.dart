@@ -55,7 +55,7 @@ class RoomSensorService extends ChangeNotifier {
     if (!fresh(device, room)) return 'NO FRESH DATA';
     final record = reading(device, room);
     final v = record?[field];
-        // MQ-2 gas level: firmware v11+ sends the analog reading in mV;
+    // MQ-2 gas level: firmware v11+ sends the analog reading in mV;
     // older firmware sends only the status.
     if (field == 'smoke_raw') {
       final status = switch ('${record?['smoke_status'] ?? ''}'.toUpperCase()) {
@@ -65,8 +65,8 @@ class RoomSensorService extends ChangeNotifier {
         'FAULT' => 'SENSOR FAULT',
         _ => 'NOT REPORTED',
       };
-           // ~140 mV at the ESP32 = 0 V: the MQ-2 signal is not reaching the board.
-      if (v is num && v < 250 && status == 'SENSOR FAULT') {
+      // ~140 mV at the ESP32 = 0 V: the MQ-2 signal is not reaching the board.
+      if (v is num && v < 155 && status == 'SENSOR FAULT') {
         return 'NO SIGNAL (0 V) • check MQ-2 wire / 5V';
       }
       return v is num ? '${v.round()} mV • $status' : status;
@@ -111,6 +111,33 @@ class RoomSensorService extends ChangeNotifier {
         if (_qualifiesForBfp(first) && _qualifiesForBfp(second)) {
           return VerifiedRoomFire(device, room, first);
         }
+      }
+    }
+    return null;
+  }
+
+  /// Smoke OR flame (not yet a confirmed fire) seen in two consecutive fresh
+  /// readings of one room. Used for the warning banner; a single noisy
+  /// reading never shows it.
+  VerifiedRoomFire? get verifiedWarning {
+    bool hazard(Map<String, dynamic> r) {
+      final smoke = '${r['smoke_status'] ?? ''}'.toUpperCase();
+      return (r['flame_detected'] == true && r['flame_fault'] != true) ||
+          (r['smoke_fault'] != true && ['ALARM', 'FIRE', 'DANGER', 'CRITICAL'].contains(smoke));
+    }
+
+    for (final device in controllerIds) {
+      for (final room in roomsFor(device)) {
+        final rows = _recent[_key(device, room)];
+        if (rows == null || rows.length < 2) continue;
+        final first = rows[0], second = rows[1];
+        final latestAt = DateTime.tryParse('${first['received_at'] ?? ''}')?.toUtc();
+        final priorAt = DateTime.tryParse('${second['received_at'] ?? ''}')?.toUtc();
+        if (latestAt == null || priorAt == null) continue;
+        final age = DateTime.now().toUtc().difference(latestAt);
+        final gap = latestAt.difference(priorAt);
+        if (age.isNegative || age > const Duration(seconds: 30) || gap > const Duration(seconds: 30)) continue;
+        if (hazard(first) && hazard(second)) return VerifiedRoomFire(device, room, first);
       }
     }
     return null;
