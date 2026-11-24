@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'pdf_fonts.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -37,7 +38,7 @@ class EventsExportService {
     const red = PdfColor.fromInt(0xFFB91C1C);
     const grey = PdfColor.fromInt(0xFF555555);
     const light = PdfColor.fromInt(0xFFFDF2F2);
-    final doc = pw.Document(title: 'PyroGuard Event History');
+    final doc = pw.Document(theme: await pgPdfTheme(), title: 'PyroGuard Event History');
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(28),

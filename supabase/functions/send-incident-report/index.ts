@@ -7,11 +7,13 @@
 //
 // Called by the signed-in app user (Authorization: Bearer <user JWT>).
 // Body: { report_number, pdf_base64, summary?: { room, type, first_detected, last_detected } }
-// Uses the same e-mail secrets as incident-email: BREVO_API_KEY or RESEND_API_KEY,
-// EMAIL_FROM, EMAIL_FROM_NAME (optional).
+// E-mail is sent from EMAIL_FROM (dev.pyroguard@gmail.com):
+//   GMAIL_APP_PASSWORD -> Gmail SMTP over SSL port 465 (Supabase blocks 25/587 only)
+//   or BREVO_API_KEY / RESEND_API_KEY as before. EMAIL_FROM_NAME is optional.
 // Every attempt is logged in public.pyroguard_bfp_report_emails.
 // ---------------------------------------------------------------------------
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import nodemailer from 'npm:nodemailer@6.9.16'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +31,18 @@ const MAX_PER_HOUR = 10
 async function sendMail(to: string, cc: string | null, subject: string, html: string, filename: string, pdfB64: string) {
   const from = env('EMAIL_FROM'), fromName = env('EMAIL_FROM_NAME') || 'PyroGuard Alerts'
   if (!from) throw new Error('E-mail is not set up on the server (EMAIL_FROM secret missing).')
+  if (env('GMAIL_APP_PASSWORD')) {
+    const transport = nodemailer.createTransport({
+      host: 'smtp.gmail.com', port: 465, secure: true,
+      auth: { user: env('GMAIL_USER') || from, pass: env('GMAIL_APP_PASSWORD').replace(/\s/g, '') },
+    })
+    await transport.sendMail({
+      from: `"${fromName}" <${from}>`, to, ...(cc ? { cc, replyTo: cc } : {}),
+      subject, html,
+      attachments: [{ filename, content: pdfB64, encoding: 'base64', contentType: 'application/pdf' }],
+    })
+    return 'gmail'
+  }
   if (env('BREVO_API_KEY')) {
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
@@ -54,7 +68,7 @@ async function sendMail(to: string, cc: string | null, subject: string, html: st
     if (!r.ok) throw new Error(`Resend HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`)
     return 'resend'
   }
-  throw new Error('E-mail is not set up on the server (BREVO_API_KEY or RESEND_API_KEY missing).')
+  throw new Error('E-mail is not set up on the server (GMAIL_APP_PASSWORD missing).')
 }
 
 Deno.serve(async (req) => {

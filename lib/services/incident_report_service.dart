@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'pdf_fonts.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -353,7 +354,7 @@ class IncidentReportService {
         );
 
     final shown = inc.readings.length > 40 ? inc.readings.sublist(inc.readings.length - 40) : inc.readings;
-    final doc = pw.Document(title: 'PyroGuard Incident Report ${inc.reportNumber}', author: 'PyroGuard');
+    final doc = pw.Document(theme: await pgPdfTheme(), title: 'PyroGuard Incident Report ${inc.reportNumber}', author: 'PyroGuard');
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.fromLTRB(32, 28, 32, 28),

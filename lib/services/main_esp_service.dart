@@ -132,44 +132,20 @@ class MainEspService extends ChangeNotifier {
     if (_busy) return _status;
     _busy = true;
     try {
-      final uri = Uri.parse('http://$_ip/status');
-      final response = await http.get(uri).timeout(PyroGuardConfig.localRequestTimeout);
+      // /status needs the device key (which the app does not hold), so the
+      // open /health route proves the controller is on the Wi-Fi. Sensor
+      // values come from Supabase.
+      final response = await http
+          .get(Uri.parse('http://$_ip/health'))
+          .timeout(PyroGuardConfig.localRequestTimeout);
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) {
-          final id = (decoded['device_id'] ?? '').toString().trim();
-          if (id.isNotEmpty && id != PyroGuardConfig.mainDeviceId) {
-            throw StateError('Wrong device at $_ip: $id');
-          }
-          _status = MainEspStatus.fromJson(_ip, decoded);
-        } else if (decoded is Map) {
-          final body = Map<String, dynamic>.from(decoded);
-          final id = (body['device_id'] ?? '').toString().trim();
-          if (id.isNotEmpty && id != PyroGuardConfig.mainDeviceId) {
-            throw StateError('Wrong device at $_ip: $id');
-          }
-          _status = MainEspStatus.fromJson(_ip, body);
-        } else {
-          _status = MainEspStatus.offline(_ip);
-          _lastError = 'Unexpected /status response';
-        }
-        if (_status?.reachable == true) _lastError = null;
-      } else if (response.statusCode == 401) {
-        // /status is protected by the device key, which the app does not
-        // hold. The unauthenticated /health route still proves the
-        // controller is reachable on the LAN (sensor values come from cloud).
-        final health = await http
-            .get(Uri.parse('http://$_ip/health'))
-            .timeout(PyroGuardConfig.localRequestTimeout);
-        final decoded = health.statusCode == 200 ? jsonDecode(health.body) : null;
         final id = decoded is Map ? '${decoded['device_id'] ?? ''}'.trim() : '';
-        if (id == PyroGuardConfig.mainDeviceId) {
-          _status = MainEspStatus.fromJson(_ip, {'device_id': id, 'alert_status': 'REACHABLE'});
-          _lastError = null;
-        } else {
-          _status = MainEspStatus.offline(_ip);
-          _lastError = 'HTTP ${health.statusCode} from /health';
+        if (id.isNotEmpty && id != PyroGuardConfig.mainDeviceId) {
+          throw StateError('Wrong device at $_ip: $id');
         }
+        _status = MainEspStatus.fromJson(_ip, {'device_id': PyroGuardConfig.mainDeviceId, 'alert_status': 'REACHABLE'});
+        _lastError = null;
       } else {
         _status = MainEspStatus.offline(_ip);
         _lastError = 'HTTP ${response.statusCode}';

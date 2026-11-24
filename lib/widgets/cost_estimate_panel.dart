@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import '../services/pdf_fonts.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -44,7 +45,7 @@ class CostCatalog {
     const red = PdfColor.fromInt(0xFFB91C1C);
     const grey = PdfColor.fromInt(0xFF555555);
     final money = NumberFormat('#,##0.00');
-    final doc = pw.Document(title: 'PyroGuard Pricing');
+    final doc = pw.Document(theme: await pgPdfTheme(), title: 'PyroGuard Pricing');
     final hw = sum(items, 'Hardware'), labor = sum(items, 'Labor'), other = sum(items, 'Other');
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,

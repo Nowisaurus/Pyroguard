@@ -159,6 +159,46 @@ class HistoricalService {
     return _mergeBoth(supabaseRows, mysqlRows, limit);
   }
 
+  /// Only real fire / smoke / flame alerts from the sensor controllers
+  /// (WARNING, SMOKE, FIRE, EMERGENCY ...), not door/window/motion or app
+  /// activity. Filtered in the database so older alerts are not pushed out
+  /// by the many contact-switch events.
+  Future<List<Map<String, dynamic>>> fetchFireEvents({int limit = 100}) async {
+    List<Map<String, dynamic>> supabaseRows = const [];
+    final user = _db.auth.currentUser;
+    if (user != null) {
+      try {
+        const shared = 'ESP32-001,ESP32-002,pyroguard_camera_001';
+        const fire = 'or(event_type.in.(FIRE,FIRE_CONFIRMED,FIRE_ALERT,WARNING,SMOKE,SMOKE_ALERT,FLAME,HEAT,EMERGENCY),'
+            'message.ilike.*smoke*,message.ilike.*fire*,message.ilike.*flame*),'
+            'event_type.not.in.(DOOR_OPEN,DOOR_CLOSED,WINDOW_OPEN,WINDOW_CLOSED,ARMED,DISARMED,MOTION)';
+        final rows = await _db
+            .from('event_history')
+            .select()
+            .or('and(user_id.eq.${user.id},$fire),and(device_id.in.($shared),$fire)')
+            .order('created_at', ascending: false)
+            .limit(limit);
+        supabaseRows = _normalizeRows(rows);
+      } catch (e) {
+        debugPrint('Supabase fire history read unavailable: $e');
+      }
+    }
+    final mysqlRows = (await _mysqlRows('list_incident', limit: limit * 3))
+        .where(isFireRow)
+        .toList();
+    return _mergeBoth(supabaseRows, mysqlRows, limit).where(isFireRow).toList();
+  }
+
+  static final _fireType = RegExp(r'^(FIRE|FIRE_CONFIRMED|FIRE_ALERT|WARNING|SMOKE|SMOKE_ALERT|FLAME|HEAT|EMERGENCY)$', caseSensitive: false);
+  static final _fireText = RegExp(r'smoke|fire|flame', caseSensitive: false);
+  static final _notFire = RegExp(r'camera_|listening|audio|snapshot|recording|motion|door|window|login|logout|settings|armed', caseSensitive: false);
+
+  static bool isFireRow(Map<String, dynamic> row) {
+    final type = (row['event_type'] ?? row['alert_type'] ?? '').toString();
+    if (_notFire.hasMatch(type)) return false;
+    return _fireType.hasMatch(type) || _fireText.hasMatch((row['message'] ?? '').toString());
+  }
+
   Future<List<Map<String, dynamic>>> fetchCameraEvents({int limit = 100}) async {
     List<Map<String, dynamic>> supabaseRows = const [];
     try {

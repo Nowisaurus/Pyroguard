@@ -25,6 +25,7 @@
 // ---------------------------------------------------------------------------
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { safeEqual } from '../_shared/device_auth.ts'
+import nodemailer from 'npm:nodemailer@6.9.16'
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 
@@ -152,6 +153,18 @@ async function send(to: string[], subject: string, html: string, photoB64: strin
   const from = env('EMAIL_FROM'), fromName = env('EMAIL_FROM_NAME') || 'PyroGuard Alerts'
   if (!from) throw new Error('Set the EMAIL_FROM secret')
   const filename = 'pyroguard-camera.jpg'
+  if (env('GMAIL_APP_PASSWORD')) {
+    // Gmail SMTP over SSL (port 465 is allowed from Edge Functions).
+    const transport = nodemailer.createTransport({
+      host: 'smtp.gmail.com', port: 465, secure: true,
+      auth: { user: env('GMAIL_USER') || from, pass: env('GMAIL_APP_PASSWORD').replace(/\s/g, '') },
+    })
+    await transport.sendMail({
+      from: `"${fromName}" <${from}>`, to: to.join(', '), subject, html,
+      ...(photoB64 ? { attachments: [{ filename, content: photoB64, encoding: 'base64', contentType: 'image/jpeg' }] } : {}),
+    })
+    return 'gmail'
+  }
   if (env('BREVO_API_KEY')) {
     const r = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
@@ -176,7 +189,7 @@ async function send(to: string[], subject: string, html: string, photoB64: strin
     if (!r.ok) throw new Error(`Resend HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`)
     return 'resend'
   }
-  throw new Error('Set BREVO_API_KEY or RESEND_API_KEY')
+  throw new Error('Set GMAIL_APP_PASSWORD (or BREVO_API_KEY / RESEND_API_KEY)')
 }
 
 async function handle(db: SupabaseClient, ev: Record<string, any>) {

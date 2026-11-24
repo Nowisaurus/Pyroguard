@@ -3,6 +3,7 @@ import 'pg_notice.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import '../services/pdf_fonts.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -107,7 +108,7 @@ class _TestingDataPanelState extends State<TestingDataPanel> {
     try {
       const red = PdfColor.fromInt(0xFFB91C1C);
       const grey = PdfColor.fromInt(0xFF555555);
-      final doc = pw.Document(title: 'PyroGuard Sensor Ranges');
+      final doc = pw.Document(theme: await pgPdfTheme(), title: 'PyroGuard Sensor Ranges');
       pw.Widget h(String t) => pw.Padding(
             padding: const pw.EdgeInsets.only(top: 12, bottom: 6),
             child: pw.Text(t, style: pw.TextStyle(color: red, fontSize: 12, fontWeight: pw.FontWeight.bold)),

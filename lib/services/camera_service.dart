@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/pyroguard_config.dart';
 import '../config/camera_network_config.dart';
 import '../config/camera_endpoint.dart';
+import '../config/coverage_config.dart';
 import 'camera_telemetry_service.dart';
 import 'historical_service.dart';
 import 'dual_sync_service.dart';
@@ -127,8 +128,9 @@ class CameraEvent {
         snapshotUrl: map['snapshot_url'] as String?,
         panAtCapture: (map['pan_at_capture'] as num?)?.toInt(),
         tiltAtCapture: (map['tilt_at_capture'] as num?)?.toInt(),
-        createdAt: DateTime.tryParse((map['created_at'] ?? '').toString()) ??
-            DateTime.now(),
+        createdAt: (DateTime.tryParse((map['created_at'] ?? '').toString()) ??
+                DateTime.now())
+            .toLocal(),
       );
 }
 
@@ -136,8 +138,14 @@ class AlertLog {
   final String id;
   final String deviceId;
   final String alertType;
+  final String message;
   final double temperature;
   final int smokeLevel;
+  final double? temperatureC;
+  final double? smokePercent;
+  final int? smokeRaw;
+  final double? humidity;
+  final bool? flameDetected;
   final String flameStatus;
   final String severityLevel;
   final String location;
@@ -149,8 +157,14 @@ class AlertLog {
     required this.id,
     required this.deviceId,
     required this.alertType,
+    this.message = '',
     required this.temperature,
     required this.smokeLevel,
+    this.temperatureC,
+    this.smokePercent,
+    this.smokeRaw,
+    this.humidity,
+    this.flameDetected,
     required this.flameStatus,
     required this.severityLevel,
     required this.location,
@@ -159,24 +173,67 @@ class AlertLog {
     required this.createdAt,
   });
 
-  factory AlertLog.fromMap(Map<String, dynamic> map) => AlertLog(
-        id: (map['id'] ?? '').toString(),
-        deviceId: (map['device_id'] ?? '').toString(),
-        alertType: (map['alert_type'] ?? map['alert_status'] ?? '').toString(),
-        temperature: (map['temperature'] as num?)?.toDouble() ?? 0,
-        smokeLevel: (map['smoke_level'] as num?)?.toInt() ??
-            (map['smoke_raw'] as num?)?.toInt() ??
-            0,
-        flameStatus:
-            (map['flame_status'] ?? map['flame_detected'] ?? '').toString(),
-        severityLevel:
-            (map['severity_level'] ?? map['alert_status'] ?? '').toString(),
-        location: (map['location'] ?? '').toString(),
-        photoUrl: map['photo_url'] as String?,
-        videoUrl: map['video_url'] as String?,
-        createdAt: DateTime.tryParse((map['created_at'] ?? '').toString()) ??
-            DateTime.now(),
-      );
+  static double? _d(dynamic v) => v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
+
+  static bool? _b(dynamic v) {
+    if (v is bool) return v;
+    final t = '${v ?? ''}'.toLowerCase().trim();
+    if (const ['true', '1', 'yes', 'detected', 'fire'].contains(t)) return true;
+    if (const ['false', '0', 'no', 'none', 'clear', 'not detected'].contains(t)) return false;
+    return null;
+  }
+
+  /// Friendly name of the alert, e.g. "Smoke warning".
+  String get title {
+    final t = alertType.toUpperCase();
+    if (t.contains('FIRE') || t == 'EMERGENCY') return 'Fire alert';
+    if (t.contains('FLAME')) return 'Flame detected';
+    if (t.contains('SMOKE') || message.toLowerCase().contains('smoke')) return 'Smoke warning';
+    if (t == 'HEAT') return 'Heat warning';
+    if (t == 'WARNING') return 'Sensor warning';
+    return alertType.replaceAll('_', ' ');
+  }
+
+  /// "Warning", "Critical" ... from the stored severity number or text.
+  String get severityLabel {
+    final n = int.tryParse(severityLevel);
+    if (n == null) return severityLevel.isEmpty ? 'Unrated' : severityLevel;
+    return switch (n) { <= 0 => 'Info', 1 => 'Warning', 2 => 'High', _ => 'Critical' };
+  }
+
+  bool get isCritical => (int.tryParse(severityLevel) ?? 0) >= 2 || flameDetected == true || alertType.toUpperCase().contains('FIRE');
+
+  factory AlertLog.fromMap(Map<String, dynamic> map) {
+    final device = (map['device_id'] ?? '').toString();
+    final temp = _d(map['temperature'] ?? map['temperature_c']);
+    final smokePct = _d(map['smoke_level'] ?? map['smoke_percent']);
+    final raw = _d(map['smoke_raw']);
+    final flame = _b(map['flame_status'] ?? map['flame_detected']);
+    var location = (map['location'] ?? map['room'] ?? map['room_key'] ?? '').toString().trim();
+    if (location.isEmpty || location == 'null') {
+      final area = CoverageConfig.controllerCoverage(device);
+      location = area.isEmpty ? device : '$area ($device)';
+    }
+    return AlertLog(
+      id: (map['id'] ?? '').toString(),
+      deviceId: device,
+      alertType: (map['alert_type'] ?? map['event_type'] ?? map['alert_status'] ?? '').toString(),
+      message: (map['message'] ?? '').toString(),
+      temperature: temp ?? 0,
+      smokeLevel: (smokePct ?? raw ?? 0).toInt(),
+      temperatureC: temp,
+      smokePercent: smokePct,
+      smokeRaw: raw?.toInt(),
+      humidity: _d(map['humidity']),
+      flameDetected: flame,
+      flameStatus: flame == null ? 'Not reported' : (flame ? 'DETECTED' : 'Not detected'),
+      severityLevel: (map['severity_level'] ?? map['severity'] ?? map['alert_status'] ?? '').toString(),
+      location: location,
+      photoUrl: (map['photo_url'] ?? map['image_url'] ?? map['snapshot_url']) as String?,
+      videoUrl: map['video_url'] as String?,
+      createdAt: (DateTime.tryParse((map['created_at'] ?? '').toString()) ?? DateTime.now()).toLocal(),
+    );
+  }
 }
 
 class CameraService extends ChangeNotifier {
@@ -501,11 +558,10 @@ class CameraService extends ChangeNotifier {
 
   Future<List<AlertLog>> getEvidencePhotos() async {
     try {
-      final rows =
-          await HistoricalService.instance.fetchIncidentHistory(limit: 50);
+      final rows = await HistoricalService.instance.fetchFireEvents(limit: 100);
       return rows.map(AlertLog.fromMap).toList();
     } catch (e) {
-      debugPrint('Error fetching mirrored evidence history: $e');
+      debugPrint('Error fetching fire incidents: $e');
       return [];
     }
   }
@@ -514,7 +570,13 @@ class CameraService extends ChangeNotifier {
     try {
       final rows =
           await HistoricalService.instance.fetchCameraEvents(limit: 100);
-      return rows.map(CameraEvent.fromMap).toList();
+      // Real captured pictures only (recordings have their own tab).
+      return rows
+          .map(CameraEvent.fromMap)
+          .where((e) =>
+              (e.snapshotUrl ?? '').trim().isNotEmpty &&
+              !e.eventType.toLowerCase().contains('recording'))
+          .toList();
     } catch (e) {
       debugPrint('Error fetching mirrored camera history: $e');
       return [];

@@ -69,8 +69,6 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   String? _dismissedFireEpisode;
   String? _dismissedWarningEpisode;
-  String? _lastWarningNoticeId;
-  DateTime? _lastWarningNoticeAt;
   bool _remoteThemeApplied = false;
   Timer? _dualSyncRetryTimer;
 
@@ -207,7 +205,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _onSensor() {
+    final r = SensorService.instance.latest;
     if (!mounted) return;
+    if (r == null) { setState(() {}); return; }
     setState(() {});
   }
 

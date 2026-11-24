@@ -179,7 +179,7 @@ class RecordingVideo {
   /// Storage folder of a recording from its first frame URL
   /// (.../incident-media/<folder>/000.jpg).
   static String? folderOf(String frameUrl) {
-    final marker = '/${PyroGuardConfig.incidentMediaBucket}/';
+    const marker = '/${PyroGuardConfig.incidentMediaBucket}/';
     final i = frameUrl.indexOf(marker);
     if (i < 0) return null;
     final rest = frameUrl.substring(i + marker.length);

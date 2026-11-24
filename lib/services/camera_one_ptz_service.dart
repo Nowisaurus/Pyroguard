@@ -64,6 +64,7 @@ class CameraOnePtzService extends ChangeNotifier {
 
   /// ESP32-001 reported its servo position to Supabase recently.
   bool cloudLinked = false;
+  DateTime? _relayDownUntil;
   DateTime? cloudSeenAt;
   DateTime? _lastCloudPoll;
 
@@ -271,7 +272,8 @@ class CameraOnePtzService extends ChangeNotifier {
     if (_disposed || sending) return false;
 
     // ---- cloud route (Supabase -> ESP32-001) ----
-    if (!localReady) {
+    final relayDown = _relayDownUntil != null && DateTime.now().isBefore(_relayDownUntil!);
+    if (!localReady || relayDown) {
       // One press = one 15 degree jog. Hold-repeats and the release "stop"
       // are skipped, because a queued "stop" would cancel the jog.
       if (!record && action != 'stop') return false;
@@ -328,10 +330,12 @@ class CameraOnePtzService extends ChangeNotifier {
         case 429:
           message = null; // a previous jog is still being delivered
           return false;
-                case 502:
+        case 502:
           // Camera 1 reached ESP32-001 but the board did not accept the move
-          // (rebooting / Wi-Fi blip). Send the same move through Supabase.
+          // (rebooting / Wi-Fi blip). Send the same move through Supabase,
+          // and keep using that route for 2 minutes (no failing LAN calls).
           controllerLinked = false;
+          _relayDownUntil = DateTime.now().add(const Duration(minutes: 2));
           return await _cloudFallback(action, step, record);
         case 503:
           controllerLinked = false;
@@ -345,10 +349,10 @@ class CameraOnePtzService extends ChangeNotifier {
               '(HTTP ${body['controller_http'] ?? response.statusCode}).';
           return false;
       }
-        } catch (e) {
+    } catch (e) {
       // Timeout / network changed / camera offline: try the cloud route.
       cameraReachable = false;
-      return _cloudFallback(action, step, record);
+      return await _cloudFallback(action, step, record);
     } finally {
       sending = false;
       _notify();

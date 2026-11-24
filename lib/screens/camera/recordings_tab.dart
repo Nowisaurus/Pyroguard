@@ -93,7 +93,7 @@ class _RecordingsTabState extends State<RecordingsTab> {
     if (frames.isEmpty) return;
     showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: .6),
+      barrierColor: Colors.black.withValues(alpha: .45),
       builder: (_) => _PlayerDialog(
         frames: frames,
         title: _when.format(DateTime.parse('${r['created_at']}').toLocal()),
@@ -230,49 +230,57 @@ class _PlayerDialogState extends State<_PlayerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.all(20),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          AspectRatio(
-            aspectRatio: 4 / 3,
-            child: Image.network(widget.frames[_i], fit: BoxFit.contain, gaplessPlayback: true),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            child: Row(children: [
-              IconButton(
-                onPressed: () => setState(() => _playing = !_playing),
-                icon: Icon(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _i.toDouble(),
-                  max: (widget.frames.length - 1).clamp(1, 100000).toDouble(),
-                  activeColor: AppColors.orange,
-                  onChanged: (v) => setState(() => _i = v.round().clamp(0, widget.frames.length - 1).toInt()),
+    final primary = AppTheme.textPrimary(context);
+    return PgGlassDialog(
+      title: 'Recording',
+      subtitle: '${widget.title} · Camera 1',
+      icon: Icons.videocam_outlined,
+      maxWidth: 900,
+      actions: [
+        TextButton.icon(
+          onPressed: widget.onDownload,
+          icon: Icon(Icons.download_rounded, color: AppTheme.brandForeground(context), size: 18),
+          label: Text('Download', style: TextStyle(color: AppTheme.brandForeground(context), fontWeight: FontWeight.w800)),
+        ),
+      ],
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Fits the window: the picture shrinks so the controls stay visible.
+        Flexible(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ColoredBox(
+                color: Colors.black,
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Image.network(widget.frames[_i], fit: BoxFit.contain, gaplessPlayback: true),
                 ),
               ),
-              Text('${_i + 1}/${widget.frames.length}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: widget.onDownload,
-                icon: const Icon(Icons.download_rounded, color: Colors.white, size: 18),
-                label: const Text('Download', style: TextStyle(color: Colors.white)),
-              ),
-              IconButton(
-                tooltip: 'Close',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-              ),
-            ]),
+            ),
           ),
-        ]),
-      ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 14, 10),
+          child: Row(children: [
+            IconButton(
+              tooltip: _playing ? 'Pause' : 'Play',
+              onPressed: () => setState(() => _playing = !_playing),
+              icon: Icon(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: primary),
+            ),
+            Expanded(
+              child: Slider(
+                value: _i.toDouble(),
+                max: (widget.frames.length - 1).clamp(1, 100000).toDouble(),
+                activeColor: AppColors.orange,
+                onChanged: (v) => setState(() => _i = v.round().clamp(0, widget.frames.length - 1).toInt()),
+              ),
+            ),
+            Text('${_i + 1}/${widget.frames.length}',
+                style: TextStyle(color: AppTheme.textSecondary(context), fontSize: 12, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      ]),
     );
   }
 }
