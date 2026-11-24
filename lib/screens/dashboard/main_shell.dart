@@ -42,6 +42,7 @@ typedef PyroBottomItem = ({String path, IconData icon, IconData active, String l
 const _navItems = [
   (path: '/dashboard', icon: Icons.dashboard_outlined,       activeIcon: Icons.dashboard,       label: 'Dashboard'),
   (path: '/camera',    icon: Icons.videocam_outlined,        activeIcon: Icons.videocam,        label: 'Camera'),
+  (path: '/evidence',  icon: Icons.video_library_outlined,   activeIcon: Icons.video_library,   label: 'Recordings'),
   (path: '/analytics', icon: Icons.monitor_heart_outlined,   activeIcon: Icons.monitor_heart,   label: 'Monitoring'),
   (path: '/incidents', icon: Icons.warning_amber_outlined,   activeIcon: Icons.warning_amber,   label: 'Events'),
   (path: '/calendar',  icon: Icons.calendar_month_outlined,  activeIcon: Icons.calendar_month,  label: 'Calendar'),
@@ -84,10 +85,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // "View" on a notification (in-app or phone) opens its page.
-    NotificationService.onOpenRoute = (route) {
-      if (mounted) _go(route);
-    };
+    // A notification tapped before sign-in opens its page now.
     WidgetsBinding.instance.addPostFrameCallback((_) => NotificationService.openPendingRoute());
     AdminService.instance.addListener(_onAdminChanged);
     AdminService.instance.refresh();
@@ -161,7 +159,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    NotificationService.onOpenRoute = null;
     _dualSyncRetryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (!_adminIdentity) {

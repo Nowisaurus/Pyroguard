@@ -501,7 +501,8 @@ class NotificationService {
       if (respectPreferences && !await _preferenceEnabled('push_notifications')) return false;
       final urgent = kind == PyroAlertKind.fire || kind == PyroAlertKind.intrusion;
       if (kIsWeb) {
-        return webShowAlert(title: title, body: body, tag: 'pyroguard-$id', urgent: urgent);
+        return webShowAlert(
+            title: title, body: body, tag: 'pyroguard-$id', urgent: urgent, onClick: () => _openRoute(route));
       }
       final plugin = _plugin;
       if (plugin == null) return false;

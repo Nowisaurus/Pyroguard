@@ -69,6 +69,8 @@ void main() async {
     );
     supabaseInitialized = true;
     appRouter = createAppRouter();
+    // "View" on any notification (in-app card, browser or phone) opens its page.
+    NotificationService.onOpenRoute = (route) => appRouter?.go(route);
   } catch (e) {
     supabaseInitError = e;
     debugPrint('Supabase init failed: $e');

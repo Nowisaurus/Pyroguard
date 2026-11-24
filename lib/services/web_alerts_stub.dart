@@ -8,5 +8,6 @@ bool webShowAlert({
   required String body,
   required String tag,
   bool urgent = false,
+  void Function()? onClick,
 }) =>
     false;

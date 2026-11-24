@@ -1,3 +1,4 @@
+import 'recordings_tab.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../services/camera_service.dart';
@@ -20,7 +21,7 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     cameraService = CameraService.instance;
   }
 
@@ -47,6 +48,7 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab>
           tabs: const [
             Tab(text: 'Fire Incidents'),
             Tab(text: 'All Photos'),
+            Tab(text: 'Recordings'),
           ],
         ),
         actions: [
@@ -61,6 +63,7 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab>
         children: [
           _buildIncidentsTab(),
           _buildPhotosTab(),
+          const RecordingsTab(),
         ],
       ),
     );

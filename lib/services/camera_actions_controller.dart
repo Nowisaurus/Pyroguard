@@ -2,8 +2,12 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/camera_endpoint.dart';
 import '../config/camera_network_config.dart';
+import '../widgets/pg_notice.dart';
+import 'recording_video.dart';
 import '../config/coverage_config.dart';
 import '../config/pyroguard_config.dart';
 import 'camera_audio_service.dart';
@@ -136,6 +140,23 @@ class CameraActionsController extends ChangeNotifier {
   // ---------------- evidence storage ----------------
   Uint8List? get _latestFrame => _feed.connected ? _feed.frame : null;
 
+  /// The newest picture: from the live feed in the app, or (website) a fresh
+  /// photo from Camera 1 through its secure link.
+  Future<Uint8List?> _grabFrame() async {
+    final live = _latestFrame;
+    if (live != null) return live;
+    if (!CameraEndpoint.httpsPage || !CameraTunnel.instance.ready) return null;
+    try {
+      final r = await http
+          .get(CameraEndpoint.url(cameraId, '', '/capture',
+              query: {'v': '${DateTime.now().millisecondsSinceEpoch}'}))
+          .timeout(const Duration(seconds: 4));
+      final b = r.bodyBytes;
+      if (r.statusCode == 200 && b.length > 4 && b[0] == 0xFF && b[1] == 0xD8) return b;
+    } catch (_) {}
+    return null;
+  }
+
   Future<String?> _upload(Uint8List bytes, String path) async {
     final storage =
         Supabase.instance.client.storage.from(PyroGuardConfig.incidentMediaBucket);
@@ -160,7 +181,7 @@ class CameraActionsController extends ChangeNotifier {
   /// Saves the current live frame as evidence (Supabase + MySQL).
   Future<void> snapshot() async {
     if (snapshotBusy) return;
-    final bytes = _latestFrame;
+    final bytes = await _grabFrame();
     if (bytes == null) {
       _say('No live picture yet. Wait for LIVE, then try again.', error: true);
       return;
@@ -198,6 +219,7 @@ class CameraActionsController extends ChangeNotifier {
   bool _recordUploadBusy = false;
   Uint8List? _lastRecordedFrame;
   final List<String> _recordUrls = [];
+  final List<Uint8List> _recordBytes = [];
   String _recordFolder = '';
 
   Duration get recordElapsed => recordStartedAt == null
@@ -214,7 +236,7 @@ class CameraActionsController extends ChangeNotifier {
 
   void startRecording() {
     if (recording) return;
-    if (_latestFrame == null) {
+    if (_latestFrame == null && !(CameraEndpoint.httpsPage && CameraTunnel.instance.ready)) {
       _say('No live picture yet. Wait for LIVE, then record.', error: true);
       return;
     }
@@ -222,6 +244,7 @@ class CameraActionsController extends ChangeNotifier {
     recordedFrames = 0;
     recordStartedAt = DateTime.now();
     _recordUrls.clear();
+    _recordBytes.clear();
     _lastRecordedFrame = null;
     _recordFolder =
         '$cameraId/rec_${DateTime.now().toUtc().millisecondsSinceEpoch}';
@@ -238,10 +261,13 @@ class CameraActionsController extends ChangeNotifier {
 
   Future<void> _captureRecordFrame() async {
     if (!recording || _recordUploadBusy) return;
-    final bytes = _latestFrame;
-    if (bytes == null || identical(bytes, _lastRecordedFrame)) return;
-    _lastRecordedFrame = bytes;
     _recordUploadBusy = true;
+    final bytes = await _grabFrame();
+    if (bytes == null || identical(bytes, _lastRecordedFrame)) {
+      _recordUploadBusy = false;
+      return;
+    }
+    _lastRecordedFrame = bytes;
     try {
       final url = await _upload(
         bytes,
@@ -249,6 +275,7 @@ class CameraActionsController extends ChangeNotifier {
       );
       if (url != null) {
         _recordUrls.add(url);
+        _recordBytes.add(bytes);
         recordedFrames++;
         _notify();
       }
@@ -275,11 +302,21 @@ class CameraActionsController extends ChangeNotifier {
           error: true);
       return;
     }
+    // One video file (MJPEG .avi) so the recording can be played and downloaded.
+    String? videoUrl;
+    try {
+      final fps = seconds <= 0 ? 1 : (_recordBytes.length / seconds).round().clamp(1, 30);
+      videoUrl = await RecordingVideo.store(List<Uint8List>.from(_recordBytes), _recordFolder, fps: fps);
+    } catch (e) {
+      debugPrint('Recording video not built: $e');
+    }
+    _recordBytes.clear();
     try {
       final stored = await HistoricalService.instance.logCameraEvent({
         'device_id': controllerId,
         'camera_device_id': cameraId,
         'event_type': 'recording',
+        if (videoUrl != null) 'video_url': videoUrl,
         'snapshot_url': _recordUrls.first,
         'frame_urls': List<String>.from(_recordUrls),
         'frame_count': _recordUrls.length,
@@ -288,9 +325,14 @@ class CameraActionsController extends ChangeNotifier {
         ..._angles(),
         'created_at': DateTime.now().toUtc().toIso8601String(),
       });
-      _say(stored
-          ? 'Recording saved: ${_recordUrls.length} frames, ${seconds}s (Supabase + MySQL)'
-          : 'Recording frames uploaded; history sync pending');
+      PgNotice.show(
+        '${_recordUrls.length} frames, ${seconds}s${videoUrl != null ? ', video ready to download' : ''}.'
+        '${stored ? '' : ' History sync pending.'}',
+        title: 'Recording saved',
+        kind: PgNoticeKind.success,
+        actionLabel: 'View',
+        onAction: () => NotificationService.onOpenRoute?.call('/evidence'),
+      );
     } catch (e) {
       _say('Recording frames uploaded, history not saved: $e', error: true);
     }

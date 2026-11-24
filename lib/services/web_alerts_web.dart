@@ -38,15 +38,25 @@ bool webShowAlert({
   required String body,
   required String tag,
   bool urgent = false,
+  void Function()? onClick,
 }) {
   if (webAlertPermission() != 'granted') return false;
   try {
-    Notification(
+    final n = Notification(
       title,
       body: body,
       tag: tag,
       icon: 'icons/Icon-192.png',
     );
+    // Clicking the browser notification brings PyroGuard to the front and
+    // opens the page the alert is about.
+    n.onClick.listen((_) {
+      try {
+        window.focus();
+      } catch (_) {}
+      n.close();
+      onClick?.call();
+    });
     return true;
   } catch (_) {
     // Chrome on Android only allows notifications from a service worker;
