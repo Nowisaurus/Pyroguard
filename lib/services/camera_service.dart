@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/pyroguard_config.dart';
 import '../config/camera_network_config.dart';
+import '../config/camera_endpoint.dart';
 import 'camera_telemetry_service.dart';
 import 'historical_service.dart';
 import 'dual_sync_service.dart';
@@ -205,7 +206,7 @@ class CameraService extends ChangeNotifier {
         CameraTelemetryService.instance.cameraIp,
       );
   String get homepageUrl => 'http://$espIp/';
-  String get streamUrl => 'http://$espIp:81/stream';
+  String get streamUrl => CameraEndpoint.url(CameraTunnel.cameraId, espIp, '/stream', port: 81).toString();
   String get micPcmUrl => 'http://$espIp:82/mic';
 
   Future<void> _auditControl(
@@ -297,9 +298,9 @@ class CameraService extends ChangeNotifier {
 
   Future<void> startStream() async {
     _wantStreaming = true;
-    // HTTPS website: the browser blocks http://<camera>:81/stream.
-    if (kIsWeb && Uri.base.scheme == 'https') {
-      _lastError = 'Live video plays in the PyroGuard app on the home Wi-Fi.';
+    // HTTPS website without the secure camera link: http:// is blocked.
+    if (!CameraEndpoint.reachable) {
+      _lastError = 'Waiting for the secure camera link (run start-camera-tunnel on the home PC).';
       _statusController.add(_lastError!);
       return;
     }
@@ -401,10 +402,10 @@ class CameraService extends ChangeNotifier {
   }
 
   Future<Uint8List?> captureSnapshotBytes() async {
-    if (kIsWeb && Uri.base.scheme == 'https') return null; // blocked by the browser
+    if (!CameraEndpoint.reachable) return null; // blocked by the browser
     try {
       final response = await http
-          .get(Uri.parse('http://$espIp/capture'))
+          .get(CameraEndpoint.url(CameraTunnel.cameraId, espIp, '/capture'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         _statusController.add('Snapshot captured');

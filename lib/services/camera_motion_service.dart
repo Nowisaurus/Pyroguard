@@ -109,7 +109,7 @@ class CameraMotionMonitor extends ChangeNotifier {
   /// An HTTPS page (Vercel) may not call http://192.168.x.x: the browser
   /// blocks it as mixed content and fills the console with warnings. Motion
   /// then comes from Supabase (camera_events) instead of the local camera.
-  static bool get _localBlocked => kIsWeb && Uri.base.scheme == 'https';
+  static bool get _localBlocked => !CameraEndpoint.reachable;
 
   Future<void> _poll() async {
     if (_localBlocked || _busy || !CameraNetworkConfig.validIpv4(_ip)) return;

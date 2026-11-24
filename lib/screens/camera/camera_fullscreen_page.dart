@@ -6,6 +6,7 @@ import '../../config/camera_network_config.dart';
 import '../../config/coverage_config.dart';
 import '../../services/camera_actions_controller.dart';
 import '../../services/camera_motion_service.dart';
+import '../../config/camera_endpoint.dart';
 import '../../services/mjpeg_live_feed.dart';
 import '../../theme.dart';
 import '../../widgets/camera_controls_overlay.dart';
@@ -170,7 +171,7 @@ class _CameraFullscreenPageState extends State<CameraFullscreenPage> {
                                     : AppColors.orange),
                             const SizedBox(width: 8),
                             Text(
-                              '${_live.connected ? 'LIVE' : MjpegLiveFeed.localBlocked ? 'WEB VIEW' : 'CONNECTING'}  •  $name  •  '
+                              '${_live.connected ? 'LIVE' : MjpegLiveFeed.localBlocked ? (CameraTunnel.instance.ready ? 'LIVE' : 'WAITING FOR LINK') : 'CONNECTING'}  •  $name  •  '
                               '${CoverageConfig.cameraCoverage(widget.cameraDeviceId)}',
                               style: const TextStyle(
                                   color: CameraOverlayStyle.foreground, fontWeight: FontWeight.w700),

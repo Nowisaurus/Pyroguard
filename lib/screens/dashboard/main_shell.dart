@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../config/camera_endpoint.dart';
 import '../../widgets/pg_notice.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -106,6 +107,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       SensorService.instance.startListening();
       DeviceService.instance.startListening();
       CameraTelemetryService.instance.startListening();
+      CameraTunnel.instance.start(); // website: secure camera link for live video
       SecurityControlService.instance.startListening();
       AccountBootstrapService.instance.ensureRegistrationPersisted();
       NotificationService.loadBfpContact();

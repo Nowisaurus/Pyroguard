@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/widgets.dart';
+import '../config/camera_endpoint.dart';
 import '../services/mjpeg_live_feed.dart';
+import 'web_mjpeg_stub.dart' if (dart.library.js_interop) 'web_mjpeg_web.dart';
 
 /// Paints the newest frame of an MJPEG feed smoothly.
 ///
@@ -152,6 +154,19 @@ class _MjpegFrameViewState extends State<MjpegFrameView> {
 
   @override
   Widget build(BuildContext context) {
+    // HTTPS website: play the camera through its secure tunnel address with
+    // the browser's own image element (real live video, not snapshots).
+    if (CameraEndpoint.httpsPage && widget.feed != null) {
+      return ListenableBuilder(
+        listenable: CameraTunnel.instance,
+        builder: (context, _) {
+          final t = CameraTunnel.instance;
+          if (!t.ready) return widget.placeholder;
+          final url = CameraEndpoint.url(CameraTunnel.cameraId, '', '/stream', port: 81).toString();
+          return SizedBox.expand(child: webMjpegImage(url, widget.fit));
+        },
+      );
+    }
     final image = _image;
     if (image == null) return widget.placeholder;
     return RepaintBoundary(

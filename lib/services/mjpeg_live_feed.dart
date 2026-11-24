@@ -168,12 +168,14 @@ class MjpegLiveFeed extends ChangeNotifier {
           if (v.trim().isNotEmpty) v.trim(),
       }.toList();
 
-  /// An HTTPS page (Vercel) may not open http://192.168.x.x:81/stream:
-  /// the browser blocks it as mixed content. Show a clear message instead.
-  static bool get localBlocked => kIsWeb && Uri.base.scheme == 'https';
-  static const localBlockedMessage =
-      'Live video plays in the PyroGuard app on the home Wi-Fi. '
-      'The secure website cannot open the camera directly; motion photos still appear.';
+  /// HTTPS website: the Dart feed never connects (the browser blocks http://
+  /// and cannot stream an endless response); MjpegFrameView plays the
+  /// camera's secure tunnel address with an <img> element instead.
+  static bool get localBlocked => CameraEndpoint.httpsPage;
+  static String get localBlockedMessage => CameraTunnel.instance.ready
+      ? 'Live video through the secure camera link.'
+      : 'Waiting for the secure camera link. On the PC on the Pyroguard_Team Wi-Fi, run '
+          'start-camera-tunnel.bat. Motion photos still appear.';
 
   void start() {
     _stopped = false;
