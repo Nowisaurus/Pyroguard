@@ -58,6 +58,9 @@ class CameraAudioService extends ChangeNotifier {
   }
 
   Uri _uri(String path) {
+    if (kIsWeb && Uri.base.scheme == 'https') {
+      throw StateError('Listen and Speak work in the PyroGuard app on the home Wi-Fi.');
+    }
     if (_ip.isEmpty) {
       throw StateError(
         'Camera IP unavailable.',

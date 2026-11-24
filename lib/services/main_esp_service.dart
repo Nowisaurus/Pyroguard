@@ -127,6 +127,8 @@ class MainEspService extends ChangeNotifier {
   }
 
   Future<MainEspStatus?> refresh() async {
+    // HTTPS website: the browser blocks http://<esp32>/status (mixed content).
+    if (kIsWeb && Uri.base.scheme == 'https') return _status;
     if (_busy) return _status;
     _busy = true;
     try {

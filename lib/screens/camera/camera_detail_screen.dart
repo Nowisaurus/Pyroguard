@@ -171,6 +171,13 @@ class _CameraDetailScreenState extends State<CameraDetailScreen> {
   }
 
   Future<void> _refresh({bool force = false}) async {
+    if (MjpegLiveFeed.localBlocked) {
+      // HTTPS website: the browser blocks http://<camera>/capture.
+      if (mounted && _error != MjpegLiveFeed.localBlockedMessage) {
+        setState(() { _frame = null; _error = MjpegLiveFeed.localBlockedMessage; });
+      }
+      return;
+    }
     if (_live.connected && _cameraEnabled) return;
     if (_loading || !_cameraEnabled) return;
     if (!force && _nextFrameAttempt != null && DateTime.now().isBefore(_nextFrameAttempt!)) return;

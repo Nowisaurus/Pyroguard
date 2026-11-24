@@ -401,6 +401,7 @@ class CameraService extends ChangeNotifier {
   }
 
   Future<Uint8List?> captureSnapshotBytes() async {
+    if (kIsWeb && Uri.base.scheme == 'https') return null; // blocked by the browser
     try {
       final response = await http
           .get(Uri.parse('http://$espIp/capture'))

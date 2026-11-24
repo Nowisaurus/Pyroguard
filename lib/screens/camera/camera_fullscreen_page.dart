@@ -139,9 +139,16 @@ class _CameraFullscreenPageState extends State<CameraFullscreenPage> {
                   child: MjpegFrameView(
                     feed: _live,
                     fit: BoxFit.contain,
-                    placeholder: const Center(
-                      child: Text('Connecting to live video…',
-                          style: TextStyle(color: CameraOverlayStyle.secondary)),
+                    placeholder: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                            MjpegLiveFeed.localBlocked
+                                ? MjpegLiveFeed.localBlockedMessage
+                                : 'Connecting to live video…',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: CameraOverlayStyle.secondary)),
+                      ),
                     ),
                   ),
                 ),
@@ -163,7 +170,7 @@ class _CameraFullscreenPageState extends State<CameraFullscreenPage> {
                                     : AppColors.orange),
                             const SizedBox(width: 8),
                             Text(
-                              '${_live.connected ? 'LIVE' : 'CONNECTING'}  •  $name  •  '
+                              '${_live.connected ? 'LIVE' : MjpegLiveFeed.localBlocked ? 'WEB VIEW' : 'CONNECTING'}  •  $name  •  '
                               '${CoverageConfig.cameraCoverage(widget.cameraDeviceId)}',
                               style: const TextStyle(
                                   color: CameraOverlayStyle.foreground, fontWeight: FontWeight.w700),

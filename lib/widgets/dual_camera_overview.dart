@@ -404,6 +404,7 @@ class _CameraLivePreviewState extends State<_CameraLivePreview> {
   }
 
   Future<void> _fetch({bool force = false}) async {
+    if (MjpegLiveFeed.localBlocked) return; // HTTPS site: local camera blocked
     if (_live.connected) return;
     if (_busy || !mounted) return;
     if (!force && _nextAttempt != null && DateTime.now().isBefore(_nextAttempt!)) return;
