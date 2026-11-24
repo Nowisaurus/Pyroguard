@@ -476,7 +476,7 @@ class _PlanPainter extends CustomPainter {
       final mine = youRoom == null || route.room.key == youRoom;
       if (youRoom != null && !mine) continue;
       final pts = route.path.map(px).toList();
-      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+      final path = ui.Path()..moveTo(pts.first.dx, pts.first.dy);
       for (final p in pts.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }
@@ -561,7 +561,7 @@ class _PlanPainter extends CustomPainter {
     final dir = Offset(math.cos(-a), math.sin(-a));
     final left = Offset(math.cos(-a + 2.6), math.sin(-a + 2.6));
     final right = Offset(math.cos(-a - 2.6), math.sin(-a - 2.6));
-    final path = Path()
+    final path = ui.Path()
       ..moveTo(p.dx + dir.dx * 3, p.dy + dir.dy * 3)
       ..lineTo(p.dx + left.dx * len, p.dy + left.dy * len)
       ..lineTo(p.dx + right.dx * len, p.dy + right.dy * len)
