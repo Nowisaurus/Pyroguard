@@ -15,7 +15,8 @@ class RecordingVideo {
   /// Builds an MJPEG .avi from [frames] at [fps] frames per second.
   static Uint8List buildAvi(List<Uint8List> frames, {int fps = 1}) {
     if (frames.isEmpty) throw ArgumentError('No frames');
-    fps = fps.clamp(1, 30);
+    if (fps < 1) fps = 1;
+    if (fps > 30) fps = 30;
     final (w, h) = _jpegSize(frames.first) ?? (640, 480);
     final maxFrame = frames.fold<int>(0, (m, f) => f.length > m ? f.length : m);
 

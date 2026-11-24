@@ -305,7 +305,7 @@ class CameraActionsController extends ChangeNotifier {
     // One video file (MJPEG .avi) so the recording can be played and downloaded.
     String? videoUrl;
     try {
-      final fps = seconds <= 0 ? 1 : (_recordBytes.length / seconds).round().clamp(1, 30);
+      final int fps = seconds <= 0 ? 1 : (_recordBytes.length / seconds).round().clamp(1, 30).toInt();
       videoUrl = await RecordingVideo.store(List<Uint8List>.from(_recordBytes), _recordFolder, fps: fps);
     } catch (e) {
       debugPrint('Recording video not built: $e');

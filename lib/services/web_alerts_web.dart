@@ -51,9 +51,6 @@ bool webShowAlert({
     // Clicking the browser notification brings PyroGuard to the front and
     // opens the page the alert is about.
     n.onClick.listen((_) {
-      try {
-        window.focus();
-      } catch (_) {}
       n.close();
       onClick?.call();
     });

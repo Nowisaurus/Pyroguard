@@ -76,7 +76,7 @@ class _RecordingsTabState extends State<RecordingsTab> {
         final folder = frames.isEmpty ? null : RecordingVideo.folderOf(frames.first);
         if (folder == null) throw StateError('This recording has no frames.');
         final secs = (_meta(r)['duration_seconds'] as num?)?.toInt() ?? frames.length;
-        final fps = secs <= 0 ? 1 : (frames.length / secs).round().clamp(1, 30);
+        final int fps = secs <= 0 ? 1 : (frames.length / secs).round().clamp(1, 30).toInt();
         url = await RecordingVideo.buildAndStore(frames, folder, fps: fps);
       }
       final ok = await RecordingVideo.download(url, _fileName(r));
@@ -254,7 +254,7 @@ class _PlayerDialogState extends State<_PlayerDialog> {
                   value: _i.toDouble(),
                   max: (widget.frames.length - 1).clamp(1, 100000).toDouble(),
                   activeColor: AppColors.orange,
-                  onChanged: (v) => setState(() => _i = v.round().clamp(0, widget.frames.length - 1)),
+                  onChanged: (v) => setState(() => _i = v.round().clamp(0, widget.frames.length - 1).toInt()),
                 ),
               ),
               Text('${_i + 1}/${widget.frames.length}', style: const TextStyle(color: Colors.white70, fontSize: 12)),

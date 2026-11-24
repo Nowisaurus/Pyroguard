@@ -18,11 +18,11 @@ Widget webMjpegImage(String url, BoxFit fit) {
         ..src = url
         ..alt = 'Camera 1 live video';
       img.style
-        ..width = '100%'
-        ..height = '100%'
-        ..objectFit = objectFit
-        ..backgroundColor = '#000'
-        ..pointerEvents = 'none';
+        ..setProperty('width', '100%')
+        ..setProperty('height', '100%')
+        ..setProperty('object-fit', objectFit)
+        ..setProperty('background-color', '#000')
+        ..setProperty('pointer-events', 'none');
       return img;
     });
   }
