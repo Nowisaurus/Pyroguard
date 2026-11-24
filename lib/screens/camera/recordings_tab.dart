@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/recording_video.dart';
+import '../../responsive.dart';
 import '../../theme.dart';
 import '../../widgets/pg_notice.dart';
 import '../../widgets/pg_ui.dart';
@@ -102,6 +103,8 @@ class _RecordingsTabState extends State<RecordingsTab> {
     );
   }
 
+  double _pad(BuildContext context) => Responsive.horizontalPadding(context) + 6;
+
   @override
   Widget build(BuildContext context) {
     final primary = AppTheme.textPrimary(context);
@@ -119,7 +122,7 @@ class _RecordingsTabState extends State<RecordingsTab> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+        padding: EdgeInsets.fromLTRB(_pad(context), 10, _pad(context), 96),
         itemCount: _rows.length,
         itemBuilder: (context, i) {
           final r = _rows[i];
@@ -129,7 +132,7 @@ class _RecordingsTabState extends State<RecordingsTab> {
           final busy = _busy.contains((r['id'] as num).toInt());
           return Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
+              constraints: const BoxConstraints(maxWidth: double.infinity),
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: PgCard(

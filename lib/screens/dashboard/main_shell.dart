@@ -69,6 +69,8 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   String? _dismissedFireEpisode;
   String? _dismissedWarningEpisode;
+  String? _lastWarningNoticeId;
+  DateTime? _lastWarningNoticeAt;
   bool _remoteThemeApplied = false;
   Timer? _dualSyncRetryTimer;
 

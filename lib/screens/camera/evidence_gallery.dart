@@ -43,7 +43,7 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab> with SingleTick
 
   @override
   Widget build(BuildContext context) {
-    final pad = Responsive.horizontalPadding(context);
+    final pad = Responsive.horizontalPadding(context) + 6; // same side margin as Analytics
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: PyroAppBar(
@@ -62,7 +62,7 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab> with SingleTick
           padding: EdgeInsets.fromLTRB(pad, 12, pad, 4),
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
+              constraints: const BoxConstraints(maxWidth: double.infinity),
               child: _GlassTabs(controller: _tabController),
             ),
           ),
@@ -95,13 +95,13 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab> with SingleTick
           return _empty(Icons.verified_user_outlined, AppColors.green, 'No fire or smoke alerts recorded',
               'Alerts from ESP32-001 and ESP32-002 appear here with their sensor readings.');
         }
-        final pad = Responsive.horizontalPadding(context);
+        final pad = Responsive.horizontalPadding(context) + 6; // same side margin as Analytics
         return ListView.builder(
           padding: EdgeInsets.fromLTRB(pad, 10, pad, 96),
           itemCount: incidents.length + 1,
           itemBuilder: (context, index) => Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
+              constraints: const BoxConstraints(maxWidth: double.infinity),
               child: index == 0 ? _summary(incidents) : _incidentCard(incidents[index - 1]),
             ),
           ),
@@ -311,10 +311,10 @@ class _EvidenceGalleryTabState extends State<EvidenceGalleryTab> with SingleTick
           return _empty(Icons.photo_library_outlined, AppColors.orange, 'No pictures captured yet',
               'Pictures taken from Camera 1 (manual, motion or fire) appear here.');
         }
-        final pad = Responsive.horizontalPadding(context);
+        final pad = Responsive.horizontalPadding(context) + 6; // same side margin as Analytics
         return Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1200),
+            constraints: const BoxConstraints(maxWidth: double.infinity),
             child: LayoutBuilder(builder: (context, constraints) {
               final w = constraints.maxWidth;
               final columns = w < 340 ? 1 : w < 650 ? 2 : w < 950 ? 3 : 4;

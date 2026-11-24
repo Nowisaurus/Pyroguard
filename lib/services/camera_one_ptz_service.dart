@@ -336,7 +336,7 @@ class CameraOnePtzService extends ChangeNotifier {
           // and keep using that route for 2 minutes (no failing LAN calls).
           controllerLinked = false;
           _relayDownUntil = DateTime.now().add(const Duration(minutes: 2));
-          return await _cloudFallback(action, step, record);
+          return _cloudFallback(action, step, record);
         case 503:
           controllerLinked = false;
           message = body['error'] == 'controller_not_linked'
@@ -352,7 +352,7 @@ class CameraOnePtzService extends ChangeNotifier {
     } catch (e) {
       // Timeout / network changed / camera offline: try the cloud route.
       cameraReachable = false;
-      return await _cloudFallback(action, step, record);
+      return _cloudFallback(action, step, record);
     } finally {
       sending = false;
       _notify();
