@@ -297,6 +297,12 @@ class CameraService extends ChangeNotifier {
 
   Future<void> startStream() async {
     _wantStreaming = true;
+    // HTTPS website: the browser blocks http://<camera>:81/stream.
+    if (kIsWeb && Uri.base.scheme == 'https') {
+      _lastError = 'Live video plays in the PyroGuard app on the home Wi-Fi.';
+      _statusController.add(_lastError!);
+      return;
+    }
     if (_isStreaming) return;
     _isStreaming = true;
     _lastError = null;

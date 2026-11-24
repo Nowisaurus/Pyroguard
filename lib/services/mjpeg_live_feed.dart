@@ -168,8 +168,25 @@ class MjpegLiveFeed extends ChangeNotifier {
           if (v.trim().isNotEmpty) v.trim(),
       }.toList();
 
+  /// An HTTPS page (Vercel) may not open http://192.168.x.x:81/stream:
+  /// the browser blocks it as mixed content. Show a clear message instead.
+  static bool get localBlocked => kIsWeb && Uri.base.scheme == 'https';
+  static const localBlockedMessage =
+      'Live video plays in the PyroGuard app on the home Wi-Fi. '
+      'The secure website cannot open the camera directly; motion photos still appear.';
+
   void start() {
     _stopped = false;
+    if (localBlocked) {
+      if (error != localBlockedMessage) {
+        error = localBlockedMessage;
+        // Not during a build: start() can be called from initState.
+        scheduleMicrotask(() {
+          if (!_disposed) notifyListeners();
+        });
+      }
+      return;
+    }
     if (_disposed || _starting || _subscription != null || addresses.isEmpty) {
       return;
     }
