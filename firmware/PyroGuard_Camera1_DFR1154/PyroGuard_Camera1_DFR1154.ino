@@ -87,6 +87,8 @@
 #include <cstring>
 #include <math.h>
 #include <lwip/sockets.h>
+#include <Preferences.h>
+#include <ESPmDNS.h>
 
 // ===================================================
 // WIFI AND DEVICE SETTINGS
@@ -98,8 +100,19 @@
 #define CAMERA_DEVICE_ID "pyroguard_camera_001"
 
 #define EDGE_FUNCTION_NAME "camera-ingest"
-// Set true only if this address is free and your router uses 192.168.8.x.
+// The fixed address below is used ONLY on the built-in WIFI_SSID network
+// (your 192.168.8.x router). On any other Wi-Fi the camera takes whatever
+// address the router gives it; the app learns it from Supabase and ESP32-001
+// finds the camera by its network name "pyroguard-cam1" (mDNS).
 #define USE_FIXED_CAMERA_IP true
+#define CAMERA_MDNS_NAME "pyroguard-cam1"
+// Wi-Fi on any network: up to 3 saved networks (newest first) + WIFI_SSID.
+// No known Wi-Fi for 30 s -> setup hotspot "PyroGuard-Camera1-Setup"
+// (password below); connect a phone and open http://192.168.4.1/wifi
+#define CAM_WIFI_MAX_SAVED 3
+#define CAM_WIFI_PORTAL_AFTER_MS 30000UL
+#define CAM_WIFI_SETUP_SSID "PyroGuard-Camera1-Setup"
+#define CAM_WIFI_SETUP_PASSWORD "pyroguard123"
 static const IPAddress CAMERA_FIXED_IP(192, 168, 8, 99);
 static const IPAddress CAMERA_GATEWAY(192, 168, 8, 1);
 static const IPAddress CAMERA_SUBNET(255, 255, 255, 0);
@@ -297,6 +310,14 @@ volatile bool audioBusy = false;
 #define SERIAL_HEALTH_INTERVAL_MS 10000UL
 
 unsigned long lastWifiAttempt = 0;
+Preferences camPrefs;
+String knownSsid[CAM_WIFI_MAX_SAVED + 1];
+String knownPass[CAM_WIFI_MAX_SAVED + 1];
+int knownCount = 0;
+volatile bool wifiPortalActive = false;
+volatile bool wifiSaveRequested = false;
+unsigned long wifiLastOkMs = 0;
+bool camMdnsStarted = false;
 unsigned long lastHeartbeat = 0;
 unsigned long lastAddressPrint = 0;
 unsigned long lastServerRetry = 0;
@@ -431,12 +452,89 @@ static esp_err_t optionsHandler(httpd_req_t* req) {
 // WIFI
 // ===================================================
 
+String camWifiKey(int i, char kind) { return String("w") + i + kind; }
+
+void loadKnownNetworks() {
+  knownCount = 0;
+  for (int i = 0; i < CAM_WIFI_MAX_SAVED; i++) {
+    const String ssid = camPrefs.getString(camWifiKey(i, 's').c_str(), "");
+    if (!ssid.length()) continue;
+    knownSsid[knownCount] = ssid;
+    knownPass[knownCount] = camPrefs.getString(camWifiKey(i, 'p').c_str(), "");
+    knownCount++;
+  }
+  bool haveDefault = false;
+  for (int i = 0; i < knownCount; i++) if (knownSsid[i] == WIFI_SSID) haveDefault = true;
+  if (!haveDefault && strlen(WIFI_SSID)) {
+    knownSsid[knownCount] = WIFI_SSID;
+    knownPass[knownCount] = WIFI_PASSWORD;
+    knownCount++;
+  }
+}
+
+void saveKnownNetwork(const String& ssid, const String& pass) {
+  String s[CAM_WIFI_MAX_SAVED], p[CAM_WIFI_MAX_SAVED];
+  int n = 0;
+  s[n] = ssid; p[n] = pass; n++;
+  for (int i = 0; i < CAM_WIFI_MAX_SAVED && n < CAM_WIFI_MAX_SAVED; i++) {
+    const String old = camPrefs.getString(camWifiKey(i, 's').c_str(), "");
+    if (old.length() && old != ssid) { s[n] = old; p[n] = camPrefs.getString(camWifiKey(i, 'p').c_str(), ""); n++; }
+  }
+  for (int i = 0; i < CAM_WIFI_MAX_SAVED; i++) {
+    camPrefs.putString(camWifiKey(i, 's').c_str(), i < n ? s[i] : String());
+    camPrefs.putString(camWifiKey(i, 'p').c_str(), i < n ? p[i] : String());
+  }
+  loadKnownNetworks();
+  Serial.printf("[WIFI] Saved network \"%s\" (%d known)\n", ssid.c_str(), knownCount);
+}
+
+void forgetKnownNetworks() {
+  for (int i = 0; i < CAM_WIFI_MAX_SAVED; i++) {
+    camPrefs.remove(camWifiKey(i, 's').c_str());
+    camPrefs.remove(camWifiKey(i, 'p').c_str());
+  }
+  loadKnownNetworks();
+  Serial.println("[WIFI] Saved networks erased (only the built-in WIFI_SSID remains)");
+}
+
+void startCamMdns() {
+  if (camMdnsStarted) return;
+  char host[] = CAMERA_MDNS_NAME;          // writable: older cores take char*
+  if (MDNS.begin(host)) {
+    char svc[] = "http", proto[] = "tcp";
+    MDNS.addService(svc, proto, 80);
+    camMdnsStarted = true;
+    Serial.println("[WIFI] Network name: " CAMERA_MDNS_NAME ".local");
+  }
+}
+
+void startCamPortal() {
+  if (wifiPortalActive) return;
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(CAM_WIFI_SETUP_SSID, CAM_WIFI_SETUP_PASSWORD);
+  wifiPortalActive = true;
+  if (!serversStarted) startCameraServers();
+  Serial.println("==============================================================");
+  Serial.println("[WIFI] No known Wi-Fi. Setup hotspot ON: \"" CAM_WIFI_SETUP_SSID "\"  password: " CAM_WIFI_SETUP_PASSWORD);
+  Serial.println("[WIFI] Connect a phone to it and open http://192.168.4.1/wifi");
+  Serial.println("[WIFI] (Or type in Serial:  wifi YourWiFiName|YourPassword )");
+  Serial.println("==============================================================");
+}
+
+void stopCamPortal() {
+  if (!wifiPortalActive) return;
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  wifiPortalActive = false;
+  Serial.println("[WIFI] Setup hotspot closed (connected to Wi-Fi)");
+}
+
 bool connectWiFi() {
   lastWifiAttempt = millis();
 
   Serial.println();
   Serial.println("==================================");
-  Serial.println("[WIFI] Starting clean connection");
+  Serial.println("[WIFI] Connecting (known networks)");
   Serial.println("==================================");
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -444,57 +542,91 @@ bool connectWiFi() {
     Serial.println(WiFi.localIP());
     return true;
   }
+  if (knownCount == 0) loadKnownNetworks();
 
-  WiFi.mode(WIFI_OFF);
-  delay(500);
-  WiFi.mode(WIFI_STA);
-  delay(250);
-  WiFi.setAutoReconnect(false);
-  WiFi.setSleep(false);
-
-  Serial.print("[WIFI] SSID: ");
-  Serial.println(WIFI_SSID);
-
-  if (USE_FIXED_CAMERA_IP) {
-    if (!WiFi.config(CAMERA_FIXED_IP, CAMERA_GATEWAY, CAMERA_SUBNET, CAMERA_DNS)) {
-      Serial.println("[WIFI] Fixed IP configuration failed; retrying later.");
-      return false;
+  for (int n = 0; n < knownCount; n++) {
+    if (!wifiPortalActive) {
+      WiFi.mode(WIFI_OFF);
+      delay(300);
+      WiFi.mode(WIFI_STA);
+    } else {
+      WiFi.mode(WIFI_AP_STA);   // keep the setup hotspot up while trying
     }
-    Serial.print("[WIFI] Requested fixed IP: ");
-    Serial.println(CAMERA_FIXED_IP);
-  } else {
+    delay(200);
+    WiFi.setAutoReconnect(false);
+    WiFi.setSleep(false);
+
+    Serial.printf("[WIFI] Trying \"%s\" (%d of %d)\n", knownSsid[n].c_str(), n + 1, knownCount);
+    // 2026-11-24: always join with an AUTOMATIC address first. A phone hotspot
+    // can use the same name/password as the router but a different address
+    // range (e.g. 192.168.43.x / 172.20.10.x); a forced 192.168.8.99 there
+    // would leave the camera offline. The fixed address is applied below
+    // only when the network really is the 192.168.8.x router.
     WiFi.config(IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0), IPAddress(0, 0, 0, 0));
+
+    WiFi.begin(knownSsid[n].c_str(), knownPass[n].c_str());
+    const unsigned long started = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - started < 12000UL) {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println();
+
+    if (WiFi.status() == WL_CONNECTED && USE_FIXED_CAMERA_IP &&
+        WiFi.gatewayIP() == CAMERA_GATEWAY && WiFi.localIP() != CAMERA_FIXED_IP) {
+      // Home router (gateway 192.168.8.1): switch to the fixed 192.168.8.99.
+      if (WiFi.config(CAMERA_FIXED_IP, CAMERA_GATEWAY, CAMERA_SUBNET, CAMERA_DNS)) {
+        Serial.print("[WIFI] Home router detected - fixed IP ");
+        Serial.println(CAMERA_FIXED_IP);
+      } else {
+        Serial.println("[WIFI] Fixed IP could not be applied; keeping the automatic address.");
+      }
+    } else if (WiFi.status() == WL_CONNECTED && WiFi.gatewayIP() != CAMERA_GATEWAY) {
+      Serial.printf("[WIFI] Not the 192.168.8.x router (gateway %s, e.g. a phone hotspot): automatic address\n",
+                    WiFi.gatewayIP().toString().c_str());
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[WIFI] CONNECTED to \"%s\"\n", WiFi.SSID().c_str());
+      Serial.print("[WIFI] IP Address: ");
+      Serial.println(WiFi.localIP());
+      Serial.print("[WIFI] Signal: ");
+      Serial.print(WiFi.RSSI());
+      Serial.println(" dBm");
+      wifiLastOkMs = millis();
+      startCamMdns();
+      stopCamPortal();
+      return true;
+    }
+    Serial.printf("[WIFI] \"%s\" failed (status %d)\n", knownSsid[n].c_str(), (int)WiFi.status());
+    WiFi.disconnect(false, false);
+    delay(200);
   }
 
-  wl_status_t initialStatus = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("[WIFI] Initial status: ");
-  Serial.println((int)initialStatus);
-
-  unsigned long started = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - started < WIFI_TIMEOUT_MS) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("[WIFI] CONNECTED!");
-    Serial.print("[WIFI] IP Address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("[WIFI] Gateway: ");
-    Serial.println(WiFi.gatewayIP());
-    Serial.print("[WIFI] Signal: ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
-    return true;
-  }
-
-  Serial.println("[WIFI] CONNECTION FAILED");
-  Serial.print("[WIFI] Status: ");
-  Serial.println((int)WiFi.status());
-  WiFi.disconnect(false, false);
-  delay(300);
+  Serial.println("[WIFI] CONNECTION FAILED (no known network reachable)");
   return false;
+}
+
+void handleCameraSerial() {
+  if (!Serial.available()) return;
+  String input = Serial.readStringUntil('\n');
+  input.trim();
+  if (input.startsWith("wifi ") && input.indexOf('|') > 5) {
+    const int bar = input.indexOf('|');
+    String ssid = input.substring(5, bar); ssid.trim();
+    saveKnownNetwork(ssid, input.substring(bar + 1));
+    WiFi.disconnect(false, false);
+    wifiSaveRequested = true;
+  } else if (input == "wifilist") {
+    Serial.printf("[WIFI] %s\n", WiFi.status() == WL_CONNECTED ? ("connected to \"" + WiFi.SSID() + "\" " + WiFi.localIP().toString()).c_str() : "NOT connected");
+    for (int i = 0; i < knownCount; i++) Serial.printf("  %d. %s\n", i + 1, knownSsid[i].c_str());
+  } else if (input == "wififorget") {
+    forgetKnownNetworks();
+  } else if (input == "wifisetup") {
+    startCamPortal();
+  } else if (input.length()) {
+    Serial.println("[CMD] Camera commands: wifi NAME|PASSWORD, wifilist, wififorget, wifisetup");
+  }
 }
 
 void printAddresses() {
@@ -1674,7 +1806,83 @@ setInterval(pollStatus, 3000);
 // HTTP: PAGE
 // ===================================================
 
+String htmlSafe(String t) {
+  t.replace("&", "&amp;"); t.replace("<", "&lt;"); t.replace(">", "&gt;"); t.replace("\"", "&quot;");
+  return t;
+}
+
+String urlDecode(const char* in) {
+  String out;
+  for (size_t i = 0; in[i]; i++) {
+    if (in[i] == '+') out += ' ';
+    else if (in[i] == '%' && isxdigit((unsigned char)in[i + 1]) && isxdigit((unsigned char)in[i + 2])) {
+      char hex[3] = {in[i + 1], in[i + 2], 0};
+      out += (char)strtol(hex, nullptr, 16);
+      i += 2;
+    } else out += in[i];
+  }
+  return out;
+}
+
+static const char WIFI_SETUP_HEAD[] =
+  "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+  "<title>PyroGuard Camera 1 Wi-Fi</title><style>body{font-family:sans-serif;max-width:460px;margin:20px auto;padding:0 14px;color:#222}"
+  "h2{color:#B91C1C}button,input{font-size:16px;padding:10px;width:100%;box-sizing:border-box;margin:5px 0;border-radius:8px;border:1px solid #ccc}"
+  "button{background:#DC2626;color:#fff;border:0}.n{background:#fff;color:#222;border:1px solid #F97316;text-align:left}"
+  "small{color:#666}</style></head><body>";
+
+static esp_err_t wifiPageHandler(httpd_req_t* req) {
+  httpd_resp_set_type(req, "text/html; charset=utf-8");
+  if (!wifiPortalActive) {
+    return httpd_resp_send(req, "Wi-Fi setup is only available on the camera's setup hotspot.", HTTPD_RESP_USE_STRLEN);
+  }
+  int n = WiFi.scanNetworks();
+  String h = WIFI_SETUP_HEAD;
+  h += "<h2>PyroGuard Camera 1</h2><p>Choose the Wi-Fi the camera should use:</p>";
+  for (int i = 0; i < n && i < 15; i++) {
+    const String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue;
+    h += "<button class=n type=button onclick=\"document.getElementById('s').value=this.dataset.s\" data-s=\"" +
+         htmlSafe(ssid) + "\">" + htmlSafe(ssid) + " <small>(" + String(WiFi.RSSI(i)) + " dBm)</small></button>";
+  }
+  WiFi.scanDelete();
+  h += "<form method=get action=/wifisave><input id=s name=ssid placeholder='Wi-Fi name' required>"
+       "<input name=pass type=password placeholder='Wi-Fi password (empty if open)'>"
+       "<button type=submit>Save and connect</button></form>"
+       "<p><small>Use the same Wi-Fi as both PyroGuard ESP32 boards. The camera remembers up to 3 networks.</small></p></body></html>";
+  return httpd_resp_send(req, h.c_str(), HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t wifiSaveHandler(httpd_req_t* req) {
+  httpd_resp_set_type(req, "text/html; charset=utf-8");
+  if (!wifiPortalActive) {
+    return httpd_resp_send(req, "Wi-Fi setup is only available on the camera's setup hotspot.", HTTPD_RESP_USE_STRLEN);
+  }
+  char query[256] = {}, ssidEnc[100] = {}, passEnc[140] = {};
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "ssid", ssidEnc, sizeof(ssidEnc)) != ESP_OK) {
+    httpd_resp_set_status(req, "400 Bad Request");
+    return httpd_resp_send(req, "Wi-Fi name is required", HTTPD_RESP_USE_STRLEN);
+  }
+  httpd_query_key_value(query, "pass", passEnc, sizeof(passEnc));
+  String ssid = urlDecode(ssidEnc); ssid.trim();
+  const String pass = urlDecode(passEnc);
+  if (!ssid.length()) {
+    httpd_resp_set_status(req, "400 Bad Request");
+    return httpd_resp_send(req, "Wi-Fi name is required", HTTPD_RESP_USE_STRLEN);
+  }
+  saveKnownNetwork(ssid, pass);
+  wifiSaveRequested = true;   // the main loop connects (keeps this page responsive)
+  String h = WIFI_SETUP_HEAD;
+  h += "<h2>Saved</h2><p>Camera 1 is connecting to <b>" + htmlSafe(ssid) + "</b>.</p>"
+       "<p>The setup hotspot closes when it is online. Reconnect your phone to your normal Wi-Fi; "
+       "the PyroGuard app finds the camera's new address automatically.</p>"
+       "<p><small>If the password was wrong the hotspot comes back: open http://192.168.4.1/wifi again.</small></p></body></html>";
+  return httpd_resp_send(req, h.c_str(), HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t pageHandler(httpd_req_t* req) {
+  if (wifiPortalActive && WiFi.status() != WL_CONNECTED) return wifiPageHandler(req);
   addHeaders(req);
   httpd_resp_set_type(req, "text/html; charset=utf-8");
   return httpd_resp_send(req, PAGE, HTTPD_RESP_USE_STRLEN);
@@ -2407,6 +2615,8 @@ bool startCameraServers() {
   ok &= registerEndpoint(webServer, "/audio/play", HTTP_POST, playAudioHandler);
   ok &= registerEndpoint(webServer, "/link", HTTP_GET, linkHandler);
   ok &= registerEndpoint(webServer, "/ptz", HTTP_POST, ptzHandler);
+  ok &= registerEndpoint(webServer, "/wifi", HTTP_GET, wifiPageHandler);
+  ok &= registerEndpoint(webServer, "/wifisave", HTTP_GET, wifiSaveHandler);
 
   // Flutter web preflight support.
   const char* paths[] = {
@@ -2489,6 +2699,9 @@ void setup() {
 
   initializePtzRelay();
 
+  camPrefs.begin("pgcam", false);
+  loadKnownNetworks();
+
   if (connectWiFi()) {
     if (startCameraServers()) {
       printAddresses();
@@ -2497,6 +2710,7 @@ void setup() {
     }
   } else {
     Serial.println("[BOOT] No camera URL yet: WiFi is disconnected.");
+    startCamPortal();   // no known Wi-Fi at boot: open the setup hotspot now
   }
 
   initializeAudio();
@@ -2528,12 +2742,20 @@ void loop() {
     Serial.flush();
   }
 
+  handleCameraSerial();
+
   bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  if (wifiConnected) wifiLastOkMs = millis();
 
   if (!wifiConnected) {
     digitalWrite(STATUS_LED_PIN, LOW);
 
-    if (millis() - lastWifiAttempt >= WIFI_RETRY_MS) {
+    if (!wifiPortalActive && millis() - wifiLastOkMs >= CAM_WIFI_PORTAL_AFTER_MS) startCamPortal();
+
+    // With the setup hotspot open, retry less often so the phone stays connected.
+    const unsigned long retryMs = wifiPortalActive ? 60000UL : WIFI_RETRY_MS;
+    if (wifiSaveRequested || millis() - lastWifiAttempt >= retryMs) {
+      wifiSaveRequested = false;
       Serial.println();
       Serial.println("[SYSTEM] WiFi reconnecting");
 

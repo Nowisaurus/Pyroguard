@@ -84,16 +84,11 @@ class DashboardRepository {
     final results = await Future.wait([
       _safeRows(() => db.from('device_current_state').select().inFilter('device_id', ids), 'device_current_state'),
       _safeRows(() => db.from('device_heartbeats').select().inFilter('device_id', ids), 'device_heartbeats'),
-      _safeRows(() => db.from('pyroguard_camera_telemetry').select().eq('camera_device_id', cam1).order('created_at',ascending:false).limit(100), 'pyroguard_camera_telemetry'),
-      // A separate query per room avoids one busy sensor masking another.
-      for (final group in [
-        (id: mainId, room: 'entrance'), (id: mainId, room: 'sala'),
-        (id: secondaryId, room: 'kitchen'), (id: secondaryId, room: 'bedroom'),
-      ])
-        _safeRows(() => db.from('pyroguard_room_sensor_readings')
-            .select('controller_device_id,room_key,temperature,humidity,smoke_status,flame_detected,buzzer_active,fire_confirmed,flame_fault,smoke_fault,sampled_at,received_at')
-            .eq('controller_device_id', group.id).eq('room_key', group.room)
-            .order('received_at', ascending:false).limit(1), '${group.id}/${group.room}'),
+      _safeRows(() => db.from('pyroguard_camera_telemetry').select().eq('camera_device_id', cam1).order('created_at',ascending:false).limit(1), 'pyroguard_camera_telemetry'),
+      // One query for all four rooms (4-row table kept by a database trigger).
+      _safeRows(() => db.from('pyroguard_room_sensor_latest')
+          .select('controller_device_id,room_key,latest')
+          .inFilter('controller_device_id', ids), 'room latest'),
     ]);
     final states = results[0], beats = results[1], cameras = results[2];
     ControllerSnapshot controller(String id) {
@@ -101,9 +96,10 @@ class DashboardRepository {
       final beat = match(beats, 'device_id', id);
       final keys = id == mainId ? const ['entrance','sala'] : const ['kitchen','bedroom'];
       final latest = <String, Map<String, dynamic>>{};
-      for (var i = 0; i < keys.length; i++) {
-        final rows = results[3 + (id == secondaryId ? 2 : 0) + i];
-        if (rows.isNotEmpty) latest[keys[i]] = rows.first;
+      for (final row in results[3]) {
+        if ('${row['controller_device_id']}' != id || !keys.contains('${row['room_key']}')) continue;
+        final value = row['latest'];
+        if (value is Map) latest['${row['room_key']}'] = Map<String, dynamic>.from(value);
       }
       return ControllerSnapshot(id, state, beat,
           parseTime(state?['updated_at']), parseTime(beat?['updated_at']),

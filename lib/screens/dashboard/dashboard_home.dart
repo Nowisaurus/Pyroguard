@@ -56,8 +56,9 @@ class _DashboardTabState extends State<DashboardTab> {
     SecurityControlService.instance.addListener(_rebuild);
     SecurityControlService.instance.startListening();
     _loadDual();
-    // 2 s (was 10 s) so buzzer ON/OFF, doors and readings show without a long delay.
-    _dualRefreshTimer = Timer.periodic(const Duration(seconds: 2), (_) => _loadDual());
+    // 5 s: readings come from the small "latest per room" table; faster
+    // polling only added database load (Nano compute).
+    _dualRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadDual());
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });

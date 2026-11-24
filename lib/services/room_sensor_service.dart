@@ -18,6 +18,7 @@ class RoomSensorService extends ChangeNotifier {
   RoomSensorService._();
   static final instance = RoomSensorService._();
   static const table = 'pyroguard_room_sensor_readings';
+  static const latestTable = 'pyroguard_room_sensor_latest';
   static const controllerIds = ['ESP32-001', 'ESP32-002'];
   /// The four real database room keys, paired with the correct controller.
   static const rooms = {
@@ -164,18 +165,9 @@ class RoomSensorService extends ChangeNotifier {
   void start() {
     if (_timer != null) return;
     refresh();
-    // Realtime reduces update latency; polling still handles reconnects and
-    // deployments where the table is not in the Realtime publication.
-    _channel = Supabase.instance.client
-        .channel('pyroguard-room-sensor-latest')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: table,
-          callback: (_) => refresh(),
-        )
-        .subscribe();
-    // 3 s backup refresh (realtime normally updates immediately).
+    // 2026-11-24: one small query on the 4-row "latest per room" table every
+    // 3 s (kept up to date by a database trigger). The old per-insert realtime
+    // refresh + 4 history queries per tab overloaded the database.
     _timer = Timer.periodic(const Duration(seconds: 3), (_) => refresh());
   }
 
@@ -243,28 +235,27 @@ class RoomSensorService extends ChangeNotifier {
     }
     _loading = true;
     try {
-      // Fetch each room separately: a noisy controller cannot crowd out
-      // a quieter room in a shared LIMIT query.
-      final groups = [
-        for (final device in controllerIds)
-          for (final room in roomsFor(device)) (device: device, room: room),
-      ];
-      final results = await Future.wait(groups.map((group) => client
-          .from(table)
-          .select()
-          .eq('controller_device_id', group.device)
-          .eq('room_key', group.room)
-          .order('received_at', ascending: false)
-          .limit(2)));
+      // One query: the latest + previous reading of every room, kept by the
+      // database trigger pyroguard_room_latest_upsert (4 rows in total).
+      final rows = await client
+          .from(latestTable)
+          .select('controller_device_id,room_key,latest,previous')
+          .inFilter('controller_device_id', controllerIds.toList());
       _latest.clear();
       _recent.clear();
-      for (var i = 0; i < groups.length; i++) {
-        if (results[i].isNotEmpty) {
-          final roomKey = _key(groups[i].device, groups[i].room);
-          final values = [for (final row in results[i]) Map<String, dynamic>.from(row)];
-          _latest[roomKey] = values.first;
-          _recent[roomKey] = values;
-        }
+      for (final row in rows) {
+        final device = '${row['controller_device_id']}';
+        final room = '${row['room_key']}';
+        if (!roomsFor(device).contains(room)) continue;
+        final latest = row['latest'];
+        if (latest is! Map) continue;
+        final roomKey = _key(device, room);
+        final values = <Map<String, dynamic>>[
+          Map<String, dynamic>.from(latest),
+          if (row['previous'] is Map) Map<String, dynamic>.from(row['previous'] as Map),
+        ];
+        _latest[roomKey] = values.first;
+        _recent[roomKey] = values;
       }
       error = null;
       loaded = true;

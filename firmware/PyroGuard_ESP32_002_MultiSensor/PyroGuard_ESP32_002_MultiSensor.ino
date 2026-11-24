@@ -87,7 +87,7 @@
 #ifndef PYROGUARD_BATCH
 #define PYROGUARD_BATCH 2      // 1 = ESP32-001 (Entrance + Sala), 2 = ESP32-002 (Kitchen + Bedroom)
 #endif
-#define FIRMWARE_VERSION "2026-11-23-v16"
+#define FIRMWARE_VERSION "2026-11-24-v17"
 
 #if PYROGUARD_BATCH == 2
   #define BATCH_DEVICE_ID        "ESP32-002"
