@@ -48,8 +48,8 @@ bool webShowAlert({
       tag: tag,
       icon: 'icons/Icon-192.png',
     );
-    // Clicking the browser notification brings PyroGuard to the front and
-    // opens the page the alert is about.
+    // Clicking the browser notification opens the page the alert is about
+    // (the browser brings the PyroGuard tab forward on click).
     n.onClick.listen((_) {
       n.close();
       onClick?.call();

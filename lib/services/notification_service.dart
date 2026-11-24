@@ -328,6 +328,41 @@ class NotificationService {
     await _playWarningBeep();
   }
 
+  // ── INTRUSION SIREN (app side) ────────────────────────────────────
+  // Door/window opened while ARMED: loud looping siren + SOS vibration in the
+  // app until the owner disarms, silences or acknowledges it. Security
+  // alerts are shown even if general notifications are off.
+  static bool _intrusionSiren = false;
+  static bool get intrusionSirenOn => _intrusionSiren;
+
+  static Future<void> startIntrusionSiren(String title, String body) async {
+    await _notify(_intrusionId, PyroAlertKind.intrusion, title, body,
+        route: '/camera', respectPreferences: false);
+    if (_intrusionSiren) return;
+    _intrusionSiren = true;
+    _sosVibration();
+    await _playAlarm();
+  }
+
+  /// Stops the app siren for an intrusion (never stops an active fire siren).
+  static Future<void> stopIntrusionSiren() async {
+    if (!_intrusionSiren) return;
+    _intrusionSiren = false;
+    if (_reNotifyTimer != null) return; // a fire alarm is running: keep it
+    _vibTimer?.cancel();
+    _vibTimer = null;
+    if (!kIsWeb) {
+      try {
+        await Vibration.cancel();
+      } catch (_) {}
+    }
+    if (_alarmPlaying) {
+      await _audio.stop();
+      _alarmPlaying = false;
+    }
+    alarmSoundBlocked = false;
+  }
+
   // ── DOOR / WINDOW / ARM changes stored by the controllers ─────────
   // Raised by SecurityActivityService for each new event_history row.
   // [alarm] = opened while ARMED and protected (intrusion).

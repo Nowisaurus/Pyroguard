@@ -113,6 +113,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _cameraOneMotion.attach(CameraMotionMonitor.cameraOneIp());
       // Door/window OPEN/CLOSE and ARM/DISARM from both batches, with alerts.
       SecurityActivityService.instance.start(notify: true);
+      SecurityActivityService.instance.addListener(_onSecurity);
       CameraNetworkConfig.instance.addListener(_cameraOneAddressChanged);
       CameraTelemetryService.instance.addListener(_cameraOneAddressChanged);
       CameraNetworkConfig.instance.load();
@@ -172,7 +173,9 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       CameraNetworkConfig.instance.removeListener(_cameraOneAddressChanged);
       CameraTelemetryService.instance.removeListener(_cameraOneAddressChanged);
       _cameraOneMotion.detach();
+      SecurityActivityService.instance.removeListener(_onSecurity);
       SecurityActivityService.instance.stop();
+      NotificationService.stopIntrusionSiren();
     }
     AdminService.instance.removeListener(_onAdminChanged);
     super.dispose();
@@ -202,6 +205,15 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
       _sirenEpisode = episode;
     }
     if (mounted) setState(() {});
+  }
+
+  // Rebuild only when the intrusion alarm appears or goes away (the activity
+  // service refreshes every 2 s).
+  int? _shownIntrusionId;
+  void _onSecurity() {
+    final id = SecurityActivityService.instance.activeIntrusion?.id;
+    if (id == _shownIntrusionId || !mounted) return;
+    setState(() => _shownIntrusionId = id);
   }
 
   void _onSensor() {
@@ -313,6 +325,14 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                       _go('/map');
                     },
                     onClose: () => setState(() => _dismissedWarningEpisode = warningEpisode),
+                  ),
+                if (!isAdmin && !alarm && SecurityActivityService.instance.activeIntrusion != null)
+                  _IntrusionOverlay(
+                    event: SecurityActivityService.instance.activeIntrusion!,
+                    onCamera: () {
+                      SecurityActivityService.instance.acknowledgeIntrusion();
+                      _go('/camera');
+                    },
                   ),
                 if (alarm)
                   _FireOverlay(fire: verifiedFire, onClose: () {
@@ -897,6 +917,222 @@ class _FireOverlayState extends State<_FireOverlay> {
 /// Pop-up for a verified smoke OR flame warning (two consecutive readings):
 /// shows the floor plan with the room marked and the safe way out, so the
 /// family knows where to go while they check the area.
+/// Full-screen INTRUSION alarm: a protected door/window was opened while the
+/// system is ARMED. The app siren plays until the owner disarms, silences or
+/// closes it; the ESP32 buzzers keep sounding (max 3 min) until disarmed.
+class _IntrusionOverlay extends StatefulWidget {
+  const _IntrusionOverlay({required this.event, required this.onCamera});
+  final SecurityEvent event;
+  final VoidCallback onCamera;
+
+  @override
+  State<_IntrusionOverlay> createState() => _IntrusionOverlayState();
+}
+
+class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerProviderStateMixin {
+  static const _violet = Color(0xFF7C3AED);
+  late final AnimationController _pulse =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  bool _busy = false;
+  bool _silenced = false;
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  Future<void> _disarm() async {
+    setState(() => _busy = true);
+    final ok = await SecurityControlService.instance.setMode(SecurityMode.disarmed);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) {
+      PgNotice.show('Both controllers were told to disarm. The buzzers stop when they confirm.',
+          kind: PgNoticeKind.success, title: 'System disarmed');
+      SecurityActivityService.instance.acknowledgeIntrusion();
+    } else {
+      PgNotice.show(SecurityControlService.instance.error ?? 'Could not disarm. Check the connection and try again.',
+          kind: PgNoticeKind.error, title: 'Disarm failed');
+    }
+  }
+
+  Future<void> _silence() async {
+    setState(() => _busy = true);
+    await NotificationService.stopIntrusionSiren();
+    final ok = await SecurityControlService.instance.silenceSiren();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _silenced = true;
+    });
+    if (!ok) {
+      PgNotice.show('The app siren is off, but the buzzers could not be reached.',
+          kind: PgNoticeKind.warning, title: 'Silence');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.event;
+    final primary = AppTheme.textPrimary(context);
+    final secondary = AppTheme.textSecondary(context);
+    final when = e.createdAt == null
+        ? ''
+        : '${e.createdAt!.hour % 12 == 0 ? 12 : e.createdAt!.hour % 12}:'
+            '${e.createdAt!.minute.toString().padLeft(2, '0')}:${e.createdAt!.second.toString().padLeft(2, '0')} '
+            '${e.createdAt!.hour < 12 ? 'AM' : 'PM'}';
+    final area = CoverageConfig.controllerCoverage(e.deviceId);
+
+    return Positioned.fill(
+      child: Material(
+        color: const Color(0x99160A24),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.card(context).withValues(alpha: .95),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: _violet.withValues(alpha: .7), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: _violet.withValues(alpha: .35), blurRadius: 36, spreadRadius: 2),
+                          BoxShadow(color: Colors.black.withValues(alpha: .25), blurRadius: 30, offset: const Offset(0, 12)),
+                        ],
+                      ),
+                      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                        Center(
+                          child: ScaleTransition(
+                            scale: Tween(begin: .9, end: 1.08).animate(_pulse),
+                            child: Container(
+                              width: 72,
+                              height: 72,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _violet.withValues(alpha: .14),
+                                border: Border.all(color: _violet.withValues(alpha: .55), width: 2),
+                              ),
+                              child: const Icon(Icons.sensor_door_outlined, color: _violet, size: 36),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text('INTRUSION DETECTED',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppTheme.statusForeground(context, _violet), fontSize: 20,
+                                fontWeight: FontWeight.w900, letterSpacing: .8)),
+                        const SizedBox(height: 4),
+                        Text('${e.label} was opened while the system is ARMED',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: primary, fontSize: 14.5, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _violet.withValues(alpha: .07),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _violet.withValues(alpha: .25)),
+                          ),
+                          child: Column(children: [
+                            for (final (icon, label, value) in [
+                              (Icons.location_on_outlined, 'Location', area.isEmpty ? e.label : '${e.label} · $area'),
+                              (Icons.memory_outlined, 'Controller', '${e.batch} · ${e.deviceId}'),
+                              (Icons.shield_outlined, 'Mode', e.armModeAtTime.replaceAll('_', ' ')),
+                              if (when.isNotEmpty) (Icons.schedule_rounded, 'Time', when),
+                            ])
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                child: Row(children: [
+                                  Icon(icon, size: 16, color: AppTheme.statusForeground(context, _violet)),
+                                  const SizedBox(width: 8),
+                                  SizedBox(
+                                    width: 84,
+                                    child: Text(label, style: TextStyle(color: secondary, fontSize: 12, fontWeight: FontWeight.w700)),
+                                  ),
+                                  Expanded(
+                                    child: Text(value, style: TextStyle(color: primary, fontSize: 12.5, fontWeight: FontWeight.w800)),
+                                  ),
+                                ]),
+                              ),
+                          ]),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          _silenced
+                              ? 'Siren silenced. The alarm stays on until you disarm the system.'
+                              : 'The PyroGuard buzzers are sounding. If this is not you, stay safe and check the camera. '
+                                  'If it is you, disarm the system.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: secondary, fontSize: 12, height: 1.35),
+                        ),
+                        if (NotificationService.alarmSoundBlocked) ...[
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () async {
+                              await NotificationService.retryAlarmSound();
+                              if (mounted) setState(() {});
+                            },
+                            icon: const Icon(Icons.volume_up_rounded, size: 18),
+                            label: const Text('Tap to turn on the alarm sound'),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _violet,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(46),
+                          ),
+                          onPressed: _busy ? null : _disarm,
+                          icon: _busy
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.lock_open_rounded, size: 18),
+                          label: const Text('Disarm system', style: TextStyle(fontWeight: FontWeight.w800)),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _busy || _silenced ? null : _silence,
+                              icon: const Icon(Icons.volume_off_rounded, size: 18),
+                              label: Text(_silenced ? 'Silenced' : 'Silence siren'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: widget.onCamera,
+                              icon: const Icon(Icons.videocam_outlined, size: 18),
+                              label: const Text('View camera'),
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: 4),
+                        TextButton(
+                          onPressed: SecurityActivityService.instance.acknowledgeIntrusion,
+                          child: Text('Close', style: TextStyle(color: secondary)),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _WarningOverlay extends StatelessWidget {
   const _WarningOverlay({required this.warning, required this.onClose, required this.onOpenMap});
   final VerifiedRoomFire warning;

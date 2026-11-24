@@ -89,6 +89,37 @@ class SecurityActivityService extends ChangeNotifier {
   bool _firstLoad = true;
   bool notifications = false;
 
+  /// Door/window opened while ARMED that the owner has not handled yet.
+  /// Shown as the full-screen intrusion alarm; cleared by DISARM or
+  /// [acknowledgeIntrusion].
+  SecurityEvent? activeIntrusion;
+  int _acknowledgedIntrusionId = 0;
+
+  /// The owner has seen the intrusion alarm: hide it and stop the app siren.
+  void acknowledgeIntrusion() {
+    final e = activeIntrusion;
+    if (e != null) _acknowledgedIntrusionId = e.id;
+    activeIntrusion = null;
+    NotificationService.stopIntrusionSiren();
+    notifyListeners();
+  }
+
+  void _raiseIntrusion(SecurityEvent e) {
+    if (e.id <= _acknowledgedIntrusionId) return;
+    activeIntrusion = e;
+    final where = '${e.label} (${e.batch}, ${CoverageConfig.controllerCoverage(e.deviceId)})';
+    NotificationService.startIntrusionSiren(
+      'INTRUSION: ${e.label} opened',
+      '$where was opened while the system is ARMED. Disarm or check the camera now.',
+    );
+  }
+
+  void _clearIntrusion() {
+    if (activeIntrusion == null) return;
+    activeIntrusion = null;
+    NotificationService.stopIntrusionSiren();
+  }
+
   /// Starts polling (reference counted). [notify] = raise notifications.
   void start({bool notify = false}) {
     _users++;
@@ -163,6 +194,18 @@ class SecurityActivityService extends ChangeNotifier {
       // Existing history is not "new": only notify what happens from now on.
       _firstLoad = false;
       _lastNotifiedId = newest;
+      // ...except an intrusion from the last 3 minutes that nobody disarmed
+      // yet (e.g. the app was opened / reloaded while the alarm is on).
+      if (notifications) {
+        for (final e in events) {
+          if (e.type == 'DISARMED') break;
+          if (e.intrusion) {
+            final age = e.createdAt == null ? null : DateTime.now().difference(e.createdAt!);
+            if (age != null && age < const Duration(minutes: 3)) _raiseIntrusion(e);
+            break;
+          }
+        }
+      }
       return;
     }
     if (!notifications) {
@@ -179,7 +222,12 @@ class SecurityActivityService extends ChangeNotifier {
           ? '${e.batch} (${e.deviceId}) confirmed: ${e.message}'
           : '${e.batch} • ${e.armedAtTime ? 'system ARMED' : 'system DISARMED'}'
               '${e.intrusion ? ' • INTRUSION ALARM' : ''}';
-      NotificationService.notifyContactEvent(title, body, alarm: e.intrusion);
+      if (e.intrusion) {
+        _raiseIntrusion(e); // full-screen alarm + siren (replaces the small notice)
+      } else {
+        NotificationService.notifyContactEvent(title, body);
+      }
+      if (e.type == 'DISARMED') _clearIntrusion();
     }
     _lastNotifiedId = newest;
   }

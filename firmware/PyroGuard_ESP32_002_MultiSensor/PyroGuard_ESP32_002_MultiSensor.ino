@@ -81,12 +81,13 @@
 #include <time.h>
 #include <esp_system.h>
 #include <Preferences.h>
+#include <ESPmDNS.h>
 
 // ================== WHICH CONTROLLER IS THIS? ==================
 #ifndef PYROGUARD_BATCH
 #define PYROGUARD_BATCH 2      // 1 = ESP32-001 (Entrance + Sala), 2 = ESP32-002 (Kitchen + Bedroom)
 #endif
-#define FIRMWARE_VERSION "2026-11-20-v9"
+#define FIRMWARE_VERSION "2026-11-23-v16"
 
 #if PYROGUARD_BATCH == 2
   #define BATCH_DEVICE_ID        "ESP32-002"
@@ -110,11 +111,35 @@
   #define BATCH_NAME             "Batch 1"
 #endif
 
+// ================== DEMO / TESTING SENSITIVITY ==================
+// true  = small-lighter demo: a lit lighter flame alone becomes FIRE after
+//         ~2 s, a puff of UNLIT lighter gas raises GAS DETECTED, heat alarm
+//         at 38 C, and the MQ-2 warm-up is 60 s instead of 3 min.
+// false = normal false-fire guard (smoke AND flame together for 5 s, 45 C).
+// Set back to false after the demo.
+#define DEMO_SENSITIVE_MODE    true
+
 // ================== FALSE-FIRE GUARD ==================
-#define FIRE_CONFIRM_MS        5000UL   // smoke + flame must stay on TOGETHER this long
+#if DEMO_SENSITIVE_MODE
+  #define FIRE_CONFIRM_MS      2000UL   // demo: confirmed fire after 2 s
+  #define DEMO_FLAME_ALONE_IS_FIRE true // demo: lighter flame counts without smoke
+#else
+  #define FIRE_CONFIRM_MS      5000UL   // smoke + flame must stay on TOGETHER this long
+  #define DEMO_FLAME_ALONE_IS_FIRE false
+#endif
 #define INPUT_TRUST_CLEAR_MS   2000UL   // input must read CLEAR this long once before it is trusted
 #define FLAME_CHATTER_WINDOW_MS 10000UL // flicker counting window
-#define FLAME_CHATTER_MAX      16       // more raw changes than this per window = noise -> FAULT
+#if DEMO_SENSITIVE_MODE
+  #define FLAME_CHATTER_MAX    200      // demo: a flickering lighter flame is not "noise"
+#else
+  #define FLAME_CHATTER_MAX    16       // more raw changes than this per window = noise -> FAULT
+#endif
+// A flame flickers, so the sensor output blinks. Treat it as still ON for
+// this long after the last ON blink (otherwise confirmation keeps restarting).
+#define FLAME_FLICKER_BRIDGE_MS 400UL
+// Flame / smoke stay reported to the app at least this long after they
+// clear, so even a 1-second lighter test reaches the dashboard.
+#define HAZARD_REPORT_HOLD_MS  6000UL
 #define FLAME_FAULT_HOLD_MS    60000UL  // keep a chatter fault at least this long
 #define FLAME_STUCK_MS         120000UL // flame ON this long with NO smoke in that room -> FAULT
 #define SMOKE_NEVER_CLEAR_MS   60000UL  // after warm-up, smoke must clear once within this time
@@ -153,17 +178,28 @@
 // (ESP32-002 uses "Fire exit door" and "Bedroom window" in the app.)
 // DOOR_LABEL / WINDOW_LABEL are set per batch at the top of the sketch.
 #define CONTACT_REVERSED  false   // legacy default; overridden independently below
-#define DOOR_CONTACT_REVERSED true  // GPIO25: LOW = OPEN, HIGH = CLOSED (same as the window). Serial "door invert" flips it
+// Door reed switch (both batches), same as the window:
+// magnet NEAR (door shut) = CLOSED, magnet FAR (door open) = OPEN.
+// If a door reads backwards, type "doorinvert" in Serial (saved, no re-upload).
+#define DOOR_CONTACT_REVERSED true  // GPIO25: LOW = OPEN, HIGH = CLOSED
 #define WINDOW_CONTACT_REVERSED true  // GPIO26: LOW = OPEN, HIGH = CLOSED. Serial "window invert" flips it
 // IR flame modules often output LOW on detection, but check your module's DO polarity.
 #define FLAME_ACTIVE_LOW true  // Common LM393 flame modules: LOW on flame; change only if RAW proves opposite
-#define FLAME_CONFIRM_MS 1500UL // Confirm sustained Entrance flame signal; does NOT hide stuck-active inputs
+#if DEMO_SENSITIVE_MODE
+  #define FLAME_CONFIRM_MS 600UL  // demo: lighter flame registers in ~0.6 s
+#else
+  #define FLAME_CONFIRM_MS 1500UL // Confirm sustained Entrance flame signal; does NOT hide stuck-active inputs
+#endif
 #define FLAME_CLEAR_MS 350  // prevent noisy transitions from clearing an alert instantly
 #define SMOKE_CONFIRM_MS 250 // DO signal must stay active to suppress single-sample glitches
 #define SMOKE_CLEAR_MS 500
 #define FLAME_RAW_LOG_MS 2000 // Print the raw GPIO reading even when detection state does not change
 #define FLAME2_ACTIVE_LOW true
-#define FLAME2_CONFIRM_MS 1200UL // Reject brief infrared/electrical spikes; sustained alarms remain actionable
+#if DEMO_SENSITIVE_MODE
+  #define FLAME2_CONFIRM_MS 600UL  // demo
+#else
+  #define FLAME2_CONFIRM_MS 1200UL // Reject brief infrared/electrical spikes; sustained alarms remain actionable
+#endif
 #define FLAME2_CLEAR_MS 700UL
 #define SMOKE2_ACTIVE_LOW true  // Confirm using the raw digital output of the physical Sala MQ-2 module
 #define SMOKE2_CONFIRM_MS 1500UL // Debounce Sala smoke DO independently (previously every 2 seconds)
@@ -204,8 +240,10 @@ const char* DEVICE_INGEST_KEY =
 #define ENABLE_LOCAL_API true // status and protected PTZ plus unauthenticated minimal /health
 
 // ----- Camera 1 <-> ESP32-001 direct LAN link -----
-// Camera 1 uses the fixed IP 192.168.8.99 (see its firmware).
-#define CAMERA1_HOST "192.168.8.99"
+// Camera 1 gets its address from the router (any Wi-Fi). ESP32-001 finds it by
+// its network name "pyroguard-cam1" (mDNS); the last address found is saved.
+#define CAMERA1_DEFAULT_HOST "192.168.8.99"   // first guess only
+#define CAMERA1_MDNS_NAME "pyroguard-cam1"
 #define ENABLE_CAMERA1_LINK BATCH_HAS_CAMERA_PTZ  // report IP/servo position, read motion
 #define CAMERA1_LINK_INTERVAL_MS 250UL    // 4x per second for responsive following
 #define CAMERA1_LINK_TIMEOUT_MS 700
@@ -358,9 +396,34 @@ unsigned long lastWifiAttempt = 0;
 bool webStarted = false;
 bool wifiConfigValid = false;
 
+// ----- Wi-Fi on any network -----
+// Up to 3 networks are saved on the board (newest first) plus WIFI_SSID above.
+// No saved network reachable for 30 s -> the board opens its own setup hotspot
+// "PyroGuard-<ID>-Setup" (password below). Connect a phone to it and open
+// http://192.168.4.1 to choose the new Wi-Fi. Alarms keep working meanwhile.
+#define WIFI_MAX_SAVED 3
+#define WIFI_PORTAL_AFTER_MS 30000UL
+#define WIFI_SETUP_PASSWORD "pyroguard123"
+String wifiSsids[WIFI_MAX_SAVED + 1];
+String wifiPasses[WIFI_MAX_SAVED + 1];
+int wifiNetCount = 0;
+int wifiNetIndex = 0;
+bool wifiPortalActive = false;
+unsigned long wifiLastOkMs = 0;
+unsigned long wifiConnectedSince = 0;
+bool mdnsStarted = false;
+portMUX_TYPE camHostMux = portMUX_INITIALIZER_UNLOCKED;
+char camera1HostBuf[40] = CAMERA1_DEFAULT_HOST;
+volatile bool camHostDirty = false;
+
 // ================== SENSOR SETTINGS ==================
-#define TEMP_THRESHOLD   45.0    // °C (lighter / nearby flame test)
-#define MQ2_WARMUP_MS    180000  // 3 minute heater warm-up
+#if DEMO_SENSITIVE_MODE
+  #define TEMP_THRESHOLD 38.0    // °C demo: lighter held near the DHT22 for a few seconds
+  #define MQ2_WARMUP_MS  60000   // demo: 1 minute heater warm-up
+#else
+  #define TEMP_THRESHOLD 45.0    // °C (lighter / nearby flame test)
+  #define MQ2_WARMUP_MS  180000  // 3 minute heater warm-up
+#endif
 #define READ_INTERVAL    2000    // DHT22 needs at least 2 s between reads
 #define CONTACT_DEBOUNCE 80      // ms - switch must be steady this long (stops flicker)
 
@@ -372,12 +435,30 @@ bool wifiConfigValid = false;
 // ================== MQ-2 ANALOG (AO) ==================
 // AO is read through a 10k/20k divider. Smoke = this many mV above the
 // clean-air baseline that is learned during the 3-minute warm-up.
-#define MQ2_TRIGGER_MV   150    // ~5 % of range: lighter gas / paper smoke
-#define MQ2_RELEASE_MV   100    // clears below this (hysteresis)
+#if DEMO_SENSITIVE_MODE
+  #define MQ2_TRIGGER_MV 80      // demo: a small puff of lighter gas is enough
+  #define MQ2_RELEASE_MV 50      // clears below this (hysteresis)
+#else
+  #define MQ2_TRIGGER_MV 150     // ~5 % of range: lighter gas / paper smoke
+  #define MQ2_RELEASE_MV 100     // clears below this (hysteresis)
+#endif
 #define MQ2_TRACK_RATE   0.0005f
+// The GPIO may carry the module's AO (analog) OR its DO (digital) pin; the
+// firmware decides at the end of warm-up from the clean-air reading:
+//   above MQ2_DO_DETECT_MV  -> DO wiring: gas = output pulled LOW
+//   below MQ2_NO_SIGNAL_MV  -> AO reads ~0 V: NO SIGNAL (reported to the app)
+#define MQ2_DO_DETECT_MV 2200    // DO idles HIGH (~3.1 V through the divider)
+#define MQ2_DO_LOW_MV    1000    // DO below this = gas
+#define MQ2_DO_HIGH_MV   1800    // DO above this = clear again
+#define MQ2_NO_SIGNAL_MV 155     // ESP32 shows ~140 mV for 0 V; clean air on these modules is ~170 mV
 float mq2Ema[2]  = {0, 0};      // smoothed mV (room 1, room 2)
 float mq2Base[2] = {0, 0};      // clean-air baseline mV
 bool  mq2Active[2] = {false, false};
+bool  mq2ModeSet[2] = {false, false};
+bool  mq2DigitalMode[2] = {false, false};  // true = DO wired to the GPIO
+bool  mq2NoSignal[2] = {false, false};     // AO stuck at 0 V (wire / 5 V supply)
+unsigned long mq2SignalSince[2] = {0, 0};  // when a "no signal" sensor got a real voltage
+
 
 void printDashboard(bool force);
 
@@ -546,6 +627,12 @@ unsigned long flameCandidateSince = 0;
 unsigned long lastFlameRawLog = 0;
 
 bool  intrusion = false;
+// 2026-11-24: an intrusion now LATCHES like a real alarm panel. Closing the
+// door/window again does not stop it; only DISARM (app / serial "a") clears
+// it. "Silence" from the app stops the sound but keeps the alarm recorded.
+// The siren stops by itself after INTRUSION_SIREN_MAX_MS (alarm stays on).
+#define INTRUSION_SIREN_MAX_MS 180000UL   // 3 minutes of siren per intrusion
+unsigned long intrusionSince = 0;
 
 // ---------- false-fire guard state (index 0 = room 1, 1 = room 2) ----------
 Preferences prefs;
@@ -590,6 +677,16 @@ bool buzzer2ReportActive() {
 // =====================================================
 //                    MQ-2 ANALOG (AO) HELPERS
 // =====================================================
+// Forget the learned clean-air level and learn it again now (Serial "gascal",
+// or automatically when a sensor is wired while the board is running).
+void mq2Relearn(uint8_t idx, const char* why) {
+  mq2Base[idx] = mq2Ema[idx];
+  mq2Active[idx] = false;
+  mq2ModeSet[idx] = false;
+  mq2SignalSince[idx] = 0;
+  Serial.printf("[SMOKE] MQ-2 #%u clean-air level re-learned at %.0f mV (%s)\n", idx + 1, mq2Ema[idx], why);
+}
+
 // Returns LOW while smoke is present, so it behaves like the old MQ-2 DO pin.
 int mq2VirtualDO(uint8_t idx, uint8_t pin, bool warm) {
   uint32_t sum = 0;
@@ -599,18 +696,44 @@ int mq2VirtualDO(uint8_t idx, uint8_t pin, bool warm) {
   if (!warm) {                              // heater warming: follow the reading
     mq2Base[idx] = mq2Ema[idx];
     mq2Active[idx] = false;
+    mq2ModeSet[idx] = false;
     return HIGH;
   }
   if (mq2Base[idx] <= 0) mq2Base[idx] = mq2Ema[idx];
+  if (!mq2ModeSet[idx]) {
+    mq2ModeSet[idx] = true;
+    mq2DigitalMode[idx] = mq2Base[idx] >= MQ2_DO_DETECT_MV;
+    Serial.printf("[SMOKE] MQ-2 #%u: clean air %.0f mV -> %s\n", idx + 1, mq2Base[idx],
+                  mq2DigitalMode[idx] ? "DO (digital) wiring: gas = LOW"
+                  : mq2Base[idx] < MQ2_NO_SIGNAL_MV ? "NO SIGNAL (0 V): check the AO wire, divider and MQ-2 5V/VIN supply"
+                  : "AO (analog) wiring");
+  }
+  if (mq2DigitalMode[idx]) {                // DO: comparator on the module decides
+    mq2NoSignal[idx] = false;
+    if (!mq2Active[idx] && mq2Ema[idx] < MQ2_DO_LOW_MV) mq2Active[idx] = true;
+    else if (mq2Active[idx] && mq2Ema[idx] > MQ2_DO_HIGH_MV) mq2Active[idx] = false;
+    return mq2Active[idx] ? LOW : HIGH;
+  }
+  // Learned while nothing was connected (~0 V) and now a steady real voltage
+  // appears for 10 s: the sensor was just wired -> learn clean air again.
+  if (mq2Base[idx] < MQ2_NO_SIGNAL_MV && mq2Ema[idx] >= MQ2_NO_SIGNAL_MV) {
+    if (mq2SignalSince[idx] == 0) mq2SignalSince[idx] = millis();
+    else if (millis() - mq2SignalSince[idx] >= 10000UL) mq2Relearn(idx, "sensor connected after boot");
+  } else {
+    mq2SignalSince[idx] = 0;
+  }
   const float rise = mq2Ema[idx] - mq2Base[idx];
   if (!mq2Active[idx] && rise >= MQ2_TRIGGER_MV)      mq2Active[idx] = true;
   else if (mq2Active[idx] && rise < MQ2_RELEASE_MV)   mq2Active[idx] = false;
   if (!mq2Active[idx] && rise < MQ2_RELEASE_MV / 2)   // slow clean-air drift only
     mq2Base[idx] += MQ2_TRACK_RATE * (mq2Ema[idx] - mq2Base[idx]);
+  // Still ~0 V and no gas rise: the sensor signal is not reaching the ESP32.
+  mq2NoSignal[idx] = !mq2Active[idx] && mq2Ema[idx] < MQ2_NO_SIGNAL_MV;
   return mq2Active[idx] ? LOW : HIGH;
 }
 
 int mq2Percent(uint8_t idx) {
+  if (mq2DigitalMode[idx]) return mq2Active[idx] ? 100 : 0;
   const float span = 3100.0f - mq2Base[idx];
   if (span < 100 || mq2Base[idx] <= 0) return 0;
   return (int)constrain((mq2Ema[idx] - mq2Base[idx]) * 100.0f / span, -99.0f, 100.0f);
@@ -791,16 +914,20 @@ void checkContact(Contact &c, const uint16_t* openP, uint8_t openLen) {
       const bool protectedContact = (&c == &door) ? doorProtection : windowProtection;
       if (armed && protectedContact) {
         intrusion = true;
+        intrusionSince = millis();
         Serial.printf(">>> INTRUSION ALERT: %s opened while ARMED <<<\n", c.name);
-        updateAlarm();
+        if (activeAlarm == A_INTRUSION) {
+          // Already latched (e.g. silenced earlier): a new opening sounds again.
+          muted = false;
+          startAlarmSound();
+        } else {
+          updateAlarm();
+        }
       } else {
         chime(openP, openLen);
       }
     } else {
-      if (!door.open && (!window.enabled || !window.open)) {
-        intrusion = false;
-        updateAlarm();
-      }
+      // Intrusion stays latched until DISARM (see intrusionSince above).
       chime(PAT(P_CLOSED));
     }
     Serial.println("***********************************");
@@ -1151,7 +1278,7 @@ void cameraLinkWorker(void*) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
-    String url = String("http://") + CAMERA1_HOST;
+    String url = String("http://") + cameraHost();
     if (!legacyCamera) {
       url += "/link?controller=" + String(DEVICE_ID);
       url += "&ip=" + WiFi.localIP().toString();
@@ -1171,6 +1298,17 @@ void cameraLinkWorker(void*) {
       if (!legacyCamera) http.addHeader("X-Device-Key", DEVICE_HTTP_KEY);
       const int status = http.GET();
       camera1LastHttpStatus = status;
+      static int linkFails = 0;
+      if (status == 200) linkFails = 0;
+      else if (++linkFails >= 12 && mdnsStarted) {
+        // Camera not answering at the saved address: look it up by name.
+        linkFails = 0;
+        char camName[] = CAMERA1_MDNS_NAME;   // writable: older cores take char*
+        const IPAddress found = MDNS.queryHost(camName, 1500);
+        if (found != IPAddress((uint32_t)0) && found.toString() != cameraHost()) {
+          setCameraHost(found.toString(), "found on this Wi-Fi by name");
+        }
+      }
       if (status == 200) {
         const String data = http.getString();
         lastCamera1HttpOkMs = millis();
@@ -1195,7 +1333,7 @@ void cameraLinkWorker(void*) {
           if (status == 401) {
             Serial.println("[CAMERA1] LINK REJECTED (401): CONTROLLER_HTTP_KEY in the camera sketch must equal DEVICE_HTTP_KEY here");
           } else {
-            Serial.printf("[CAMERA1] Link error HTTP=%d (check camera power/IP %s)\n", status, CAMERA1_HOST);
+            Serial.printf("[CAMERA1] Link error HTTP=%d (camera at %s; searching for %s.local)\n", status, cameraHost().c_str(), CAMERA1_MDNS_NAME);
           }
         }
       }
@@ -1210,7 +1348,7 @@ void cameraLinkWorker(void*) {
       shot.setTimeout(CAMERA1_LINK_TIMEOUT_MS * 2);
       shot.setConnectTimeout(CAMERA1_LINK_TIMEOUT_MS);
       shot.setReuse(false);
-      const String shotUrl = String("http://") + CAMERA1_HOST + "/save?reason=" + (snap == 1 ? "fire" : "intrusion");
+      const String shotUrl = String("http://") + cameraHost() + "/save?reason=" + (snap == 1 ? "fire" : "intrusion");
       if (shot.begin(shotUrl)) {
         shot.addHeader("X-Device-Key", DEVICE_HTTP_KEY);
         const int st = shot.POST(String());
@@ -1257,7 +1395,7 @@ String jsonStatus() {
   j += ",\"auto_paused\":" + String(autoFollowEnabled && autoFollowPaused() ? "true" : "false");
   j += ",\"auto_paused_ms\":" + String(autoFollowPaused() ? (unsigned long)(manualOverrideUntil - millis()) : 0UL);
   j += ",\"auto_moves\":" + String(autoMoveCount);
-  j += ",\"camera1_host\":\"" + String(CAMERA1_HOST) + "\"";
+  j += ",\"camera1_host\":\"" + cameraHost() + "\"";
   j += ",\"camera1_link_accepted\":" + String(camera1LinkAccepted && camera1LinkFresh() ? "true" : "false");
   j += ",\"camera1_last_http_status\":" + String(camera1LastHttpStatus);
   const unsigned long cameraAge = lastCamera1HttpOkMs ? millis() - lastCamera1HttpOkMs : 0;
@@ -1392,20 +1530,200 @@ void routePtz() {
   }
   jsonReply(200, jsonStatus());  // targets accepted; poll /status for the live angle
 }
+// ---------- Camera 1 address (shared with the camera link task) ----------
+String cameraHost() {
+  char buf[40];
+  portENTER_CRITICAL(&camHostMux);
+  memcpy(buf, camera1HostBuf, sizeof(buf));
+  portEXIT_CRITICAL(&camHostMux);
+  buf[sizeof(buf) - 1] = 0;
+  return String(buf);
+}
+void setCameraHost(const String& host, const char* why) {
+  portENTER_CRITICAL(&camHostMux);
+  strlcpy(camera1HostBuf, host.c_str(), sizeof(camera1HostBuf));
+  portEXIT_CRITICAL(&camHostMux);
+  camHostDirty = true;   // saved to flash from the main loop
+  Serial.printf("[CAMERA1] Camera address is now %s (%s)\n", host.c_str(), why);
+}
+bool validIpText(const String& t) {
+  IPAddress ip;
+  return t.length() >= 7 && ip.fromString(t);
+}
+
+// ---------- Saved Wi-Fi networks ----------
+String wifiKey(int i, char kind) { return String("w") + i + kind; }
+void loadWifiNetworks() {
+  wifiNetCount = 0;
+  for (int i = 0; i < WIFI_MAX_SAVED; ++i) {
+    const String ssid = prefs.getString(wifiKey(i, 's').c_str(), "");
+    if (!ssid.length()) continue;
+    wifiSsids[wifiNetCount] = ssid;
+    wifiPasses[wifiNetCount] = prefs.getString(wifiKey(i, 'p').c_str(), "");
+    ++wifiNetCount;
+  }
+  bool haveDefault = false;
+  for (int i = 0; i < wifiNetCount; ++i) if (wifiSsids[i] == WIFI_SSID) haveDefault = true;
+  if (!haveDefault && strlen(WIFI_SSID) && !String(WIFI_SSID).startsWith("REPLACE_")) {
+    wifiSsids[wifiNetCount] = WIFI_SSID;
+    wifiPasses[wifiNetCount] = WIFI_PASSWORD;
+    ++wifiNetCount;
+  }
+}
+void saveWifiNetwork(const String& ssid, const String& pass) {
+  String s[WIFI_MAX_SAVED], p[WIFI_MAX_SAVED];
+  int n = 0;
+  s[n] = ssid; p[n] = pass; ++n;
+  for (int i = 0; i < WIFI_MAX_SAVED && n < WIFI_MAX_SAVED; ++i) {
+    const String old = prefs.getString(wifiKey(i, 's').c_str(), "");
+    if (old.length() && old != ssid) { s[n] = old; p[n] = prefs.getString(wifiKey(i, 'p').c_str(), ""); ++n; }
+  }
+  for (int i = 0; i < WIFI_MAX_SAVED; ++i) {
+    prefs.putString(wifiKey(i, 's').c_str(), i < n ? s[i] : String());
+    prefs.putString(wifiKey(i, 'p').c_str(), i < n ? p[i] : String());
+  }
+  loadWifiNetworks();
+  wifiNetIndex = 0;
+  Serial.printf("[WIFI] Saved network \"%s\" (%d networks known)\n", ssid.c_str(), wifiNetCount);
+}
+void forgetWifiNetworks() {
+  for (int i = 0; i < WIFI_MAX_SAVED; ++i) {
+    prefs.remove(wifiKey(i, 's').c_str());
+    prefs.remove(wifiKey(i, 'p').c_str());
+  }
+  loadWifiNetworks();
+  wifiNetIndex = 0;
+  Serial.println("[WIFI] Saved networks erased (only the built-in WIFI_SSID remains)");
+}
+void listWifiNetworks() {
+  Serial.printf("[WIFI] %s | known networks (tried in this order):\n",
+                WiFi.status() == WL_CONNECTED ? ("connected to \"" + WiFi.SSID() + "\" " + WiFi.localIP().toString()).c_str() : "NOT connected");
+  for (int i = 0; i < wifiNetCount; ++i) Serial.printf("  %d. %s\n", i + 1, wifiSsids[i].c_str());
+  if (wifiPortalActive) Serial.printf("[WIFI] Setup hotspot ON: \"%s\" password %s -> http://192.168.4.1\n",
+                                      (String("PyroGuard-") + DEVICE_ID + "-Setup").c_str(), WIFI_SETUP_PASSWORD);
+}
+void connectNextWifi() {
+  lastWifiAttempt = millis();
+  if (wifiNetCount == 0) return;
+  const int i = wifiNetIndex % wifiNetCount;
+  ++wifiNetIndex;
+  Serial.printf("[WIFI] Trying \"%s\" (%d of %d)\n", wifiSsids[i].c_str(), i + 1, wifiNetCount);
+  WiFi.begin(wifiSsids[i].c_str(), wifiPasses[i].c_str());
+}
+
+// ---------- Setup hotspot (captive page at http://192.168.4.1) ----------
+void ensureWebServer() {
+  if (!webStarted) { webServer.begin(); webStarted = true; }
+}
+void startWifiPortal() {
+  if (wifiPortalActive) return;
+  const String ap = String("PyroGuard-") + DEVICE_ID + "-Setup";
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(ap.c_str(), WIFI_SETUP_PASSWORD);
+  wifiPortalActive = true;
+  ensureWebServer();
+  Serial.println("==============================================================");
+  Serial.printf("[WIFI] No known Wi-Fi. Setup hotspot ON: \"%s\"  password: %s\n", ap.c_str(), WIFI_SETUP_PASSWORD);
+  Serial.println("[WIFI] Connect a phone to it, open http://192.168.4.1 and pick the Wi-Fi.");
+  Serial.println("[WIFI] (Or type in Serial:  wifi YourWiFiName|YourPassword )");
+  Serial.println("==============================================================");
+}
+void stopWifiPortal() {
+  if (!wifiPortalActive) return;
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  wifiPortalActive = false;
+  Serial.println("[WIFI] Setup hotspot closed (connected to Wi-Fi)");
+}
+bool fromSetupHotspot() {
+  const IPAddress r = webServer.client().remoteIP();
+  return wifiPortalActive && r[0] == 192 && r[1] == 168 && r[2] == 4;
+}
+String htmlEscape(String t) {
+  t.replace("&", "&amp;"); t.replace("<", "&lt;"); t.replace(">", "&gt;"); t.replace("\"", "&quot;");
+  return t;
+}
+const char WIFI_PAGE_HEAD[] PROGMEM =
+  "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+  "<title>PyroGuard Wi-Fi setup</title><style>body{font-family:sans-serif;max-width:460px;margin:20px auto;padding:0 14px;color:#222}"
+  "h2{color:#B91C1C}button,input{font-size:16px;padding:10px;width:100%;box-sizing:border-box;margin:5px 0;border-radius:8px;border:1px solid #ccc}"
+  "button{background:#DC2626;color:#fff;border:0}.n{background:#fff;color:#222;border:1px solid #F97316;text-align:left}"
+  "small{color:#666}</style></head><body>";
+void routeWifiPage() {
+  if (!fromSetupHotspot()) { jsonReply(403, "{\"error\":\"setup_hotspot_only\"}"); return; }
+  int n = WiFi.scanNetworks();
+  if (n < 0) { WiFi.disconnect(); delay(100); n = WiFi.scanNetworks(); }
+  String h = FPSTR(WIFI_PAGE_HEAD);
+  h += "<h2>PyroGuard " + String(DEVICE_ID) + "</h2><p>Choose the Wi-Fi this device should use:</p>";
+  for (int i = 0; i < n && i < 15; ++i) {
+    const String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue;
+    h += "<button class=n type=button onclick=\"document.getElementById('s').value=this.dataset.s\" data-s=\"" + htmlEscape(ssid) + "\">" +
+         htmlEscape(ssid) + " <small>(" + String(WiFi.RSSI(i)) + " dBm)</small></button>";
+  }
+  WiFi.scanDelete();
+  h += "<form method=post action=/wifisave><input id=s name=ssid placeholder='Wi-Fi name' required>"
+       "<input name=pass type=password placeholder='Wi-Fi password (empty if open)'>";
+  if (BATCH_HAS_CAMERA_PTZ)
+    h += "<input name=cam placeholder='Camera 1 IP (optional, found automatically)'>";
+  h += "<button type=submit>Save and connect</button></form>"
+       "<p><small>The device remembers up to 3 networks. Fire and intrusion alarms keep working during setup.</small></p></body></html>";
+  webServer.send(200, "text/html", h);
+}
+void routeWifiSave() {
+  if (!fromSetupHotspot()) { jsonReply(403, "{\"error\":\"setup_hotspot_only\"}"); return; }
+  String ssid = webServer.arg("ssid"); ssid.trim();
+  const String pass = webServer.arg("pass");
+  String cam = webServer.arg("cam"); cam.trim();
+  if (!ssid.length()) { webServer.send(400, "text/plain", "Wi-Fi name is required"); return; }
+  saveWifiNetwork(ssid, pass);
+  if (cam.length() && validIpText(cam)) setCameraHost(cam, "entered on the setup page");
+  String h = FPSTR(WIFI_PAGE_HEAD);
+  h += "<h2>Saved</h2><p>Connecting to <b>" + htmlEscape(ssid) + "</b>...</p>"
+       "<p>The setup hotspot closes about 1 minute after the device is online. "
+       "Reconnect your phone to your normal Wi-Fi and check the PyroGuard app.</p>"
+       "<p><small>If the password was wrong, the hotspot stays on: open http://192.168.4.1 again.</small></p></body></html>";
+  webServer.send(200, "text/html", h);
+  delay(300);
+  wifiNetIndex = 0;
+  connectNextWifi();
+}
+
+void startMdns() {
+  if (mdnsStarted) return;
+  String host = String("pyroguard-") + DEVICE_ID;
+  host.toLowerCase();
+  if (MDNS.begin(host.c_str())) {
+    char svc[] = "http", proto[] = "tcp";   // writable: older cores take char*
+    MDNS.addService(svc, proto, 80);
+    mdnsStarted = true;
+    Serial.printf("[WIFI] Network name: %s.local\n", host.c_str());
+  }
+}
+
 void updateWifi() {
   if (!ENABLE_WIFI || !wifiConfigValid) return;
-  if (WiFi.status() == WL_CONNECTED) {
-    if (ENABLE_LOCAL_API && !String(DEVICE_HTTP_KEY).startsWith("REPLACE_") && strlen(DEVICE_HTTP_KEY) >= 16) {
-      if (!webStarted) { webServer.begin(); webStarted = true; Serial.printf("%s IP: ", DEVICE_ID); Serial.println(WiFi.localIP()); }
-      webServer.handleClient();
+  if (camHostDirty) { camHostDirty = false; prefs.putString("camHost", cameraHost()); }
+  const bool up = WiFi.status() == WL_CONNECTED;
+  if (up) {
+    if (wifiConnectedSince == 0) {
+      wifiConnectedSince = millis();
+      Serial.printf("[WIFI] Connected to \"%s\"  IP %s  (%d dBm)\n", WiFi.SSID().c_str(),
+                    WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+      startMdns();
     }
-    return;
+    wifiLastOkMs = millis();
+    if (wifiPortalActive && millis() - wifiConnectedSince > 60000UL) stopWifiPortal();
+  } else {
+    if (wifiConnectedSince) { wifiConnectedSince = 0; Serial.println("[WIFI] Disconnected - trying known networks"); }
+    if (lastWifiAttempt == 0 || millis() - lastWifiAttempt >= 12000UL) connectNextWifi();
+    if (!wifiPortalActive && millis() - wifiLastOkMs >= WIFI_PORTAL_AFTER_MS) startWifiPortal();
   }
-  webStarted = false;
-  if (millis() - lastWifiAttempt >= 15000 || lastWifiAttempt == 0) {
-    lastWifiAttempt = millis();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.println("WiFi reconnect requested");
+  if (ENABLE_LOCAL_API && !String(DEVICE_HTTP_KEY).startsWith("REPLACE_") && strlen(DEVICE_HTTP_KEY) >= 16 &&
+      (up || wifiPortalActive)) {
+    if (!webStarted && up) { Serial.printf("%s IP: ", DEVICE_ID); Serial.println(WiFi.localIP()); }
+    ensureWebServer();
+    webServer.handleClient();
   }
 }
 
@@ -1414,6 +1732,8 @@ void updateWifi() {
 // =====================================================
 void printHelp() {
   Serial.println("Display    : d = show the status table now (auto every 5 s), q = quiet on/off");
+  Serial.println("Wi-Fi      : wifi NAME|PASSWORD = add/switch network, wifilist, wififorget, wifisetup (hotspot)");
+  Serial.println("             camip 192.168.x.x = set Camera 1 address manually (normally found automatically)");
   Serial.println("Buzzer test: fire, intrusion, flame, smoke, temp, door, window, closed, startup, stop");
   Serial.println("Commands   : m = mute, t = test all, a = arm/disarm,");
   Serial.println("             50right, 50left, 10up, 10down, up, down, c = center, s = small sweep");
@@ -1477,6 +1797,22 @@ void testBuzzerHardware() {
 void handleCommand() {
   String input = Serial.readStringUntil('\n');
   input.trim();
+  // Wi-Fi commands keep the original letters (names/passwords are case-sensitive)
+  if (input.startsWith("wifi ") && input.indexOf('|') > 5) {
+    const int bar = input.indexOf('|');
+    String ssid = input.substring(5, bar); ssid.trim();
+    const String pass = input.substring(bar + 1);
+    saveWifiNetwork(ssid, pass);
+    wifiNetIndex = 0;
+    connectNextWifi();
+    return;
+  }
+  if (input.startsWith("camip ")) {
+    String ip = input.substring(6); ip.trim();
+    if (validIpText(ip)) setCameraHost(ip, "set from Serial");
+    else Serial.println("[CAMERA1] Usage: camip 192.168.1.50");
+    return;
+  }
   input.toLowerCase();
   input.replace(" ", "");
   if (input.length() == 0) return;
@@ -1484,6 +1820,9 @@ void handleCommand() {
   Serial.println("===================================");
 
   if (input == "diag" || input == "contacts") { printWiringDiagnostics(); return; }
+  if (input == "wifilist") { listWifiNetworks(); return; }
+  if (input == "wififorget") { forgetWifiNetworks(); return; }
+  if (input == "wifisetup") { startWifiPortal(); return; }
   if (input == "d" || input == "dash" || input == "display") { printDashboard(true); return; }
   if (input == "faults" || input == "guard") { printGuardState(); return; }
   if (input == "faultreset") {
@@ -1506,12 +1845,32 @@ void handleCommand() {
     return;
   }
   if (input == "buzzcheck") { testBuzzerHardware(); return; }
+  if (input == "gascal") {
+    // Keep lighters/smoke away, then type gascal: both sensors learn clean air now.
+    mq2Relearn(0, "Serial gascal");
+    mq2Relearn(1, "Serial gascal");
+    return;
+  }
+  if (input == "gas" || input == "mq2") {
+    // 15 s live view: hold the (unlit) lighter at each MQ-2 and watch the mV.
+    Serial.println("[GAS] Live MQ-2 readings for 15 s (mV at the ESP32 pin; ~140 mV = 0 V)...");
+    const unsigned long until = millis() + 15000UL;
+    while ((long)(until - millis()) > 0) {
+      const float a = analogReadMilliVolts(MQ2_AO_PIN), b = analogReadMilliVolts(MQ2_2_AO_PIN);
+      Serial.printf("[GAS] %s GPIO%d = %4.0f mV (%s)   %s GPIO%d = %4.0f mV (%s)\n",
+                    PRIMARY_COVERAGE_NAME, MQ2_AO_PIN, a, mq2DigitalMode[0] ? "DO" : "AO",
+                    SECOND_COVERAGE_NAME, MQ2_2_AO_PIN, b, mq2DigitalMode[1] ? "DO" : "AO");
+      delay(500);
+    }
+    Serial.println("[GAS] done. Stuck near 140 mV = no signal: check the AO wire / divider / MQ-2 VCC on 5V (VIN).");
+    return;
+  }
   if (input == "auto") { setAutoFollow(true, "Serial"); return; }
   if (input == "manual") { setAutoFollow(false, "Serial"); return; }
   if (input == "x" || input == "halt") { haltServos(); return; }
   if (input == "link") {
     Serial.printf("[CAMERA1] host=%s link=%s accepted=%s last_http=%d motion=%s auto=%s%s moves=%lu\n",
-                  CAMERA1_HOST, camera1LinkFresh() ? "OK" : "DOWN",
+                  cameraHost().c_str(), camera1LinkFresh() ? "OK" : "DOWN",
                   camera1LinkAccepted ? "yes" : "no", camera1LastHttpStatus,
                   camera1MotionDetected ? "DETECTED" : "clear",
                   autoFollowEnabled ? "ON" : "OFF", autoFollowPaused() ? " (paused by manual)" : "",
@@ -1685,7 +2044,9 @@ bool guardSmoke(int room, bool physicalActive, bool warmedUp) {
 
 // FIRE = smoke AND flame confirmed in the SAME room, together for FIRE_CONFIRM_MS.
 bool evaluateFire(int room, bool smoke, bool flame) {
-  const bool candidate = smoke && flame && !flameGuard[room].fault && !smokeGuard[room].fault;
+  const bool candidate = DEMO_FLAME_ALONE_IS_FIRE
+      ? (flame && !flameGuard[room].fault)                       // demo: lighter flame alone
+      : (smoke && flame && !flameGuard[room].fault && !smokeGuard[room].fault);
   if (!candidate) { fireCandidateSince[room] = 0; return false; }
   if (fireCandidateSince[room] == 0) fireCandidateSince[room] = millis();
   return millis() - fireCandidateSince[room] >= FIRE_CONFIRM_MS;
@@ -1736,10 +2097,11 @@ void updateFlameInput() {
 
   // Most LM393 flame sensor modules output LOW
   // when the comparator detects flame/infrared.
+  static unsigned long lastBlinkOn = 0;
+  const bool blinkOn = FLAME_ACTIVE_LOW ? (raw == LOW) : (raw == HIGH);
+  if (blinkOn) lastBlinkOn = now;
   const bool physicalDetected =
-      FLAME_ACTIVE_LOW
-      ? (raw == LOW)
-      : (raw == HIGH);
+      blinkOn || (lastBlinkOn && now - lastBlinkOn < FLAME_FLICKER_BRIDGE_MS);
   // False-fire guard: untrusted / faulty inputs never count as flame.
   const bool rawDetected = guardFlame(0, physicalDetected, smokeNow, flameNow);
 
@@ -1826,7 +2188,11 @@ void updateSmokeInput() {
 void updateFlameInputSecondRoom() {
 #if ENABLE_SECOND_BATCH
   const int raw = digitalRead(FLAME2_PIN);
-  const bool detected = guardFlame(1, raw == (FLAME2_ACTIVE_LOW ? LOW : HIGH), smokeNow2, flameNow2);
+  static unsigned long lastBlinkOn2 = 0;
+  const bool blinkOn2 = raw == (FLAME2_ACTIVE_LOW ? LOW : HIGH);
+  if (blinkOn2) lastBlinkOn2 = millis();
+  const bool detected = guardFlame(1, blinkOn2 || (lastBlinkOn2 && millis() - lastBlinkOn2 < FLAME_FLICKER_BRIDGE_MS),
+                                   smokeNow2, flameNow2);
   const unsigned long now = millis();
   if (detected != flame2Candidate) {
     flame2Candidate = detected;
@@ -1937,12 +2303,31 @@ void printRoomRow(const char* name, int idx, bool dhtOk, float t, float h, bool 
     snprintf(sm, sizeof(sm), "warming %3lus", (unsigned long)((MQ2_WARMUP_MS - millis()) / 1000UL));
   else if (smokeGuard[idx].fault)
     snprintf(sm, sizeof(sm), "SENSOR FAULT");
+  else if (mq2NoSignal[idx] && !smoke)
+    snprintf(sm, sizeof(sm), "NO SIGNAL 0V %4.0fmV", mq2Ema[idx]);
+  else if (mq2DigitalMode[idx])
+    snprintf(sm, sizeof(sm), "%-6s DO %4.0fmV", smoke ? "SMOKE!" : "clear", mq2Ema[idx]);
   else
     snprintf(sm, sizeof(sm), "%-6s %4.0fmV %+3d%%", smoke ? "SMOKE!" : "clear", mq2Ema[idx], mq2Percent(idx));
   const char* status = fire ? "*** FIRE ***" : (flame || smoke || hot) ? "ALERT"
                      : guardFault ? "CHECK SENSOR" : !dhtOk ? "DHT FAIL" : !warm ? "WARMING UP" : "OK";
   Serial.printf(" %-15s| %-15s| %-22s| %-9s| %s\n", name, th, sm,
                 flameGuard[idx].fault ? "FAULT" : (flame ? "FLAME!" : "none"), status);
+}
+
+// Flame / smoke as reported to the app: ON now, or ON within the last
+// HAZARD_REPORT_HOLD_MS (short lighter tests still reach the dashboard).
+bool heldReport(bool active, unsigned long& lastOn) {
+  if (active) lastOn = millis();
+  return active || (lastOn && millis() - lastOn < HAZARD_REPORT_HOLD_MS);
+}
+bool reportFlame(int idx) {
+  static unsigned long lastOn[2] = {0, 0};
+  return heldReport(idx == 0 ? flameNow : flameNow2, lastOn[idx]);
+}
+bool reportSmoke(int idx) {
+  static unsigned long lastOn[2] = {0, 0};
+  return heldReport(idx == 0 ? smokeNow : smokeNow2, lastOn[idx]);
 }
 
 // Every state the app/dashboard shows, packed into bits. Any change = send now.
@@ -1960,6 +2345,8 @@ uint32_t stateSignature() {
   // dashboard shows ON as soon as it sounds and OFF ~6 s after it stops.
   s |= (uint32_t)buzzerReportActive() << 20;
   s |= (uint32_t)buzzer2ReportActive() << 21;
+  s |= (uint32_t)reportFlame(0) << 22;  s |= (uint32_t)reportSmoke(0) << 23;
+  s |= (uint32_t)reportFlame(1) << 24;  s |= (uint32_t)reportSmoke(1) << 25;
   return s;
 }
 
@@ -2032,13 +2419,17 @@ String roomJson(const char* key, bool dhtOk, float t, float h, unsigned long sam
   j += ",\"sample_age_ms\":" + String(sampleAt ? millis() - sampleAt : 0UL);
   j += ",\"temperature\":" + (dhtOk ? String(t, 2) : String("null"));
   j += ",\"humidity\":" + (dhtOk ? String(h, 2) : String("null"));
-  j += ",\"smoke_raw\":null";   // MQ-2 is wired to DO (digital), not analog AO
+  // MQ-2 AO reading in mV (smoothed), so the app shows the gas level rising.
+  j += ",\"smoke_raw\":" + (warm && !smokeGuard[idx].fault ? String((int)mq2Ema[idx]) : String("null"));
+  j += ",\"smoke_rise_mv\":" + (warm ? String((int)(mq2Ema[idx] - mq2Base[idx])) : String("null"));
   j += ",\"smoke_detected\":" + String(!warm || smokeGuard[idx].fault ? "null" : (smoke ? "true" : "false"));
-  j += ",\"smoke_status\":\"" + String(!warm ? "WARMUP" : smokeGuard[idx].fault ? "FAULT" : (smoke ? "ALARM" : "CLEAR")) + "\"";
+  const bool noSignal = warm && !smoke && mq2NoSignal[idx];
+  j += ",\"smoke_status\":\"" + String(!warm ? "WARMUP" : (smokeGuard[idx].fault || noSignal) ? "FAULT" : (smoke ? "ALARM" : "CLEAR")) + "\"";
+  j += ",\"smoke_wiring\":\"" + String(mq2DigitalMode[idx] ? "DO" : noSignal ? "NO_SIGNAL" : "AO") + "\"";
   j += ",\"flame_detected\":" + String(flame ? "true" : "false");
   j += ",\"fire_confirmed\":" + String(fire ? "true" : "false");
   j += ",\"flame_fault\":" + String(flameGuard[idx].fault ? "true" : "false");
-  j += ",\"smoke_fault\":" + String(smokeGuard[idx].fault ? "true" : "false");
+  j += ",\"smoke_fault\":" + String(smokeGuard[idx].fault ? "true" : "false");  // "no signal" is shown via status only
   j += ",\"buzzer_active\":" + String(buzzing ? "true" : "false") + "}";
   return j;
 }
@@ -2050,13 +2441,13 @@ String cloudJson() {
   j += ",\"temperature\":" + (dhtValid ? String(lastTemp, 2) : String("null"));
   j += ",\"humidity\":" + (dhtValid ? String(lastHum, 2) : String("null"));
   j += ",\"sample_age_ms\":" + String(millis()-lastSensorSample);
-  j += ",\"smoke_raw\":null"; // MQ2 digital output, NOT an analog sensor value
+  j += ",\"smoke_raw\":" + (mq2WarmedUp ? String((int)mq2Ema[0]) : String("null")); // MQ-2 AO, mV
   j += ",\"smoke_detected\":";
-  j += mq2WarmedUp ? (smokeNow ? "true" : "false") : "null";
+  j += mq2WarmedUp ? (reportSmoke(0) ? "true" : "false") : "null";
   j += ",\"smoke_status\":\"";
-  j += mq2WarmedUp ? (smokeNow ? "ALARM" : "CLEAR") : "WARMUP";
+  j += mq2WarmedUp ? (reportSmoke(0) ? "ALARM" : "CLEAR") : "WARMUP";
   j += "\"";
-  j += ",\"flame_detected\":" + String(flameNow ? "true" : "false");
+  j += ",\"flame_detected\":" + String(reportFlame(0) ? "true" : "false");
   j += ",\"buzzer_active\":" + String(buzzerReportActive() ? "true" : "false");
   j += ",\"door_open\":" + String(door.open ? "true" : "false");
   j += ",\"window_open\":" + String(window.open ? "true" : "false");
@@ -2069,10 +2460,10 @@ String cloudJson() {
   j += ",\"window_raw\":" + String(USE_WINDOW ? digitalRead(WINDOW_PIN) : -1);
   j += ",\"firmware\":\"" FIRMWARE_VERSION "\"";
   j += ",\"rooms\":[" + roomJson(ROOM_KEY, dhtValid, lastTemp, lastHum, lastSensorSample, mq2WarmedUp,
-                               smokeNow, flameNow, fireNow, buzzerReportActive(), 0);
+                               reportSmoke(0), reportFlame(0), fireNow, buzzerReportActive(), 0);
 #if ENABLE_SECOND_BATCH
   j += "," + roomJson(SECOND_ROOM_KEY, dht2Valid, lastTemp2, lastHum2, lastSensorSample2, mq2WarmedUp2,
-                      smokeNow2, flameNow2, fireNow2, buzzer2ReportActive(), 1);
+                      reportSmoke(1), reportFlame(1), fireNow2, buzzer2ReportActive(), 1);
 #endif
   j += "]";
   j += "}";
@@ -2461,7 +2852,7 @@ String cameraTelemetryJson() {
   String j = "{\"action\":\"telemetry\",\"device_id\":\"" + String(DEVICE_ID) +
              "\",\"table\":\"pyroguard_camera_telemetry\",\"record\":{";
   j += "\"camera_device_id\":\"" CAMERA1_DEVICE_ID "\"";
-  j += ",\"camera_ip\":\"" CAMERA1_HOST "\"";
+  j += ",\"camera_ip\":\"" + cameraHost() + "\"";
   j += ",\"status\":\"" + String(online ? "online" : "offline") + "\"";
   j += ",\"motion_detected\":" + boolText(online && camera1MotionDetected);
   j += ",\"motion_pixels\":" + String(online ? (unsigned long)camera1ChangedSamples : 0UL);
@@ -2845,10 +3236,10 @@ void setup() {
   // The door/window setting is saved in flash and normally survives re-uploads.
   // Version 3 = door GPIO25 now LOW=OPEN / HIGH=CLOSED like the window: replace
   // the old saved value ONCE with the new defaults. "door invert" still works after.
-  if (prefs.getUChar("pinmap", 0) != 3) {
+  if (prefs.getUChar("pinmap", 0) != 5) {
     prefs.putBool("doorRev", DOOR_CONTACT_REVERSED);
     prefs.putBool("winRev", WINDOW_CONTACT_REVERSED);
-    prefs.putUChar("pinmap", 3);
+    prefs.putUChar("pinmap", 5);
     Serial.println("[CONTACT] Reed settings reset: door GPIO25 and window GPIO26 = LOW OPEN / HIGH CLOSED");
   }
   doorReversed = prefs.getBool("doorRev", DOOR_CONTACT_REVERSED);
@@ -2858,6 +3249,11 @@ void setup() {
   if (USE_WINDOW) pinMode(WINDOW_PIN, INPUT_PULLUP);
   Serial.printf("[BOOT] %s %s (%s + %s) firmware %s\n", BATCH_NAME, DEVICE_ID,
                 PRIMARY_COVERAGE_NAME, SECOND_COVERAGE_NAME, FIRMWARE_VERSION);
+  if (DEMO_SENSITIVE_MODE) {
+    Serial.printf("[DEMO] Sensitive demo mode ON: lighter flame = FIRE after %lu s, gas trigger %d mV, heat %.0f C, MQ-2 warm-up %lu s\n",
+                  (unsigned long)(FIRE_CONFIRM_MS / 1000UL), MQ2_TRIGGER_MV, (double)TEMP_THRESHOLD,
+                  (unsigned long)(MQ2_WARMUP_MS / 1000UL));
+  }
   Serial.printf("[CONTACT] door reversed=%s, window reversed=%s (Serial: door invert / window invert)\n",
                 doorReversed ? "yes" : "no", windowReversed ? "yes" : "no");
   dht.begin();
@@ -2878,11 +3274,7 @@ void setup() {
 
   Serial.println("[BOOT] stage=wifi_init");
   if (ENABLE_WIFI) {
-    if (String(WIFI_SSID).startsWith("REPLACE_") ||
-        String(WIFI_PASSWORD).startsWith("REPLACE_") ||
-        strlen(WIFI_SSID) == 0 || strlen(WIFI_PASSWORD) == 0) {
-      Serial.println("WiFi CONFIG ERROR: set valid credentials and device key first");
-    } else {
+    {   // Wi-Fi comes from saved networks / setup hotspot; WIFI_SSID is only the first default
       wifiConfigValid = true;
       WiFi.mode(WIFI_STA);
       WiFi.setSleep(false);          // no modem-sleep latency on PTZ/API requests
@@ -2896,10 +3288,25 @@ void setup() {
         webServer.on("/ptz", HTTP_OPTIONS, routeOptions);
         webServer.on("/status", HTTP_OPTIONS, routeOptions);
         webServer.on("/health", HTTP_OPTIONS, routeOptions);
-        webServer.onNotFound([]() { jsonReply(404, "{\"error\":\"not_found\"}"); });
+        webServer.on("/", HTTP_GET, []() {
+          if (fromSetupHotspot()) routeWifiPage();
+          else jsonReply(200, "{\"device\":\"" + String(DEVICE_ID) + "\",\"ok\":true}");
+        });
+        webServer.on("/wifi", HTTP_GET, routeWifiPage);
+        webServer.on("/wifisave", HTTP_POST, routeWifiSave);
+        webServer.onNotFound([]() {
+          if (fromSetupHotspot()) { webServer.sendHeader("Location", "http://192.168.4.1/"); webServer.send(302, "text/plain", ""); }
+          else jsonReply(404, "{\"error\":\"not_found\"}");
+        });
       }
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-      lastWifiAttempt = millis();
+      loadWifiNetworks();
+      {
+        const String savedCam = prefs.getString("camHost", "");
+        if (validIpText(savedCam)) setCameraHost(savedCam, "saved");
+        camHostDirty = false;
+      }
+      listWifiNetworks();
+      connectNextWifi();
     }
   }
 
@@ -2919,7 +3326,7 @@ void setup() {
         cameraLinkWorker, "Camera1Link", 8192, nullptr, 1,
         &cameraLinkTaskHandle, 0);
     Serial.println(created == pdPASS
-      ? "[CAMERA1] Direct LAN link started (http://" CAMERA1_HOST "/link) - auto-follow + manual PTZ"
+      ? "[CAMERA1] Direct LAN link started (finds " CAMERA1_MDNS_NAME ".local on any Wi-Fi) - auto-follow + manual PTZ"
       : "[CAMERA1] FAILED to start camera link task");
   } else {
     Serial.println("[CAMERA1] Link disabled; check WiFi configuration");
@@ -2972,9 +3379,20 @@ void loop() {
     }
     if (CAMERA1_MOTION_TRIGGERS_INTRUSION && motionProtection && armed && !intrusion) {
       intrusion = true;
+      intrusionSince = millis();
       Serial.println(">>> INTRUSION ALERT: Camera 1 motion while ARMED <<<");
       updateAlarm();
     }
+  }
+
+  // Intrusion siren limit: stop the sound after INTRUSION_SIREN_MAX_MS; the
+  // alarm itself stays ON (app + records) until the owner disarms.
+  if (intrusion && activeAlarm == A_INTRUSION && !muted && intrusionSince &&
+      millis() - intrusionSince > INTRUSION_SIREN_MAX_MS) {
+    muted = true;
+    stopPattern();
+    stopPattern2();
+    Serial.println("[SECURITY] Intrusion siren stopped after 3 min; alarm stays active until DISARM");
   }
 
   // Ask Camera 1 for an evidence photo when a confirmed fire or an intrusion starts.

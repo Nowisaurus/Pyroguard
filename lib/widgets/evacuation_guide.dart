@@ -258,13 +258,15 @@ List<String> evacuationSteps(List<LayoutItem> items, Map<String, int> hazard, Ma
   final rooms = items.where((i) => i.kind == 'room').toList();
   final fire = rooms.where((r) => (hazard[r.key] ?? 0) > 0).toList();
   final steps = <String>[];
-  LayoutItem? you;
+  LayoutItem? found;
   for (final r in rooms) {
-    if (r.key == youRoom) you = r;
+    if (r.key == youRoom) found = r;
   }
+  // Final copy so it stays non-null inside the closures below.
+  final you = found;
   final yourRoute = you == null ? null : routes[you.key];
   if (you != null && yourRoute != null) {
-    final inFire = fire.any((f) => f.key == you!.key);
+    final inFire = fire.any((f) => f.key == you.key);
     if (fire.isNotEmpty) {
       steps.add('${fire.any((f) => hazard[f.key] == 2) ? 'FIRE' : 'SMOKE / FLAME WARNING'} in the '
           '${fire.map((f) => f.label).join(' and ')}.');
