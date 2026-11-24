@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/recording_video.dart';
+import '../../config/coverage_config.dart';
 import '../../responsive.dart';
 import '../../theme.dart';
 import '../../widgets/pg_notice.dart';
@@ -60,9 +61,32 @@ class _RecordingsTabState extends State<RecordingsTab> {
     return first == null ? const [] : ['$first'];
   }
 
+  DateTime _savedAt(Map<String, dynamic> r) =>
+      DateTime.tryParse('${r['created_at']}')?.toLocal() ?? DateTime.now();
+
+  /// Room(s) Camera 1 was watching, e.g. "Entrance & Sala".
+  String _location(Map<String, dynamic> r) {
+    final cov = '${_meta(r)['coverage'] ?? ''}'.trim();
+    return cov.isNotEmpty && cov != 'null' ? cov : CoverageConfig.cameraCoverage(CoverageConfig.cameraOne);
+  }
+
+  /// "Pan 90° · Tilt 75°" when the camera position was saved.
+  String? _ptz(Map<String, dynamic> r) {
+    final m = _meta(r);
+    final pan = m['pan_at_capture'], tilt = m['tilt_at_capture'];
+    if (pan == null && tilt == null) return null;
+    return 'Pan ${pan ?? '—'}° · Tilt ${tilt ?? '—'}°';
+  }
+
+  int _seconds(Map<String, dynamic> r) =>
+      (_meta(r)['duration_seconds'] as num?)?.toInt() ?? _frames(r).length;
+
+  /// When the recording started (it is saved when Record is stopped).
+  DateTime _startedAt(Map<String, dynamic> r) => _savedAt(r).subtract(Duration(seconds: _seconds(r)));
+
   String _fileName(Map<String, dynamic> r) {
-    final d = DateTime.tryParse('${r['created_at']}')?.toLocal() ?? DateTime.now();
-    return 'PyroGuard_Camera1_${DateFormat('yyyyMMdd_HHmmss').format(d)}.avi';
+    final place = _location(r).replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+    return 'PyroGuard_Camera1_${place}_${DateFormat('yyyyMMdd_HHmmss').format(_startedAt(r))}.avi';
   }
 
   Future<void> _download(Map<String, dynamic> r) async {
@@ -97,7 +121,11 @@ class _RecordingsTabState extends State<RecordingsTab> {
       barrierColor: Colors.black.withValues(alpha: .45),
       builder: (_) => _PlayerDialog(
         frames: frames,
-        title: _when.format(DateTime.parse('${r['created_at']}').toLocal()),
+        title: _when.format(_startedAt(r)),
+        location: _location(r),
+        ptz: _ptz(r),
+        startedAt: _startedAt(r),
+        secondsPerFrame: frames.length <= 1 ? 1 : _seconds(r) / frames.length,
         onDownload: () => _download(r),
       ),
     );
@@ -160,9 +188,17 @@ class _RecordingsTabState extends State<RecordingsTab> {
                         Text('Camera 1 recording',
                             style: TextStyle(color: primary, fontWeight: FontWeight.w800, fontSize: 14)),
                         const SizedBox(height: 2),
-                        Text(_when.format(DateTime.parse('${r['created_at']}').toLocal()),
-                            style: TextStyle(color: secondary, fontSize: 12)),
-                        Text('${secs}s · ${frames.length} frames',
+                        Row(children: [
+                          Icon(Icons.location_on_outlined, size: 14, color: AppTheme.brandForeground(context)),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text('${_location(r)} · ${_when.format(_startedAt(r))}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                          ),
+                        ]),
+                        Text(['${secs}s · ${frames.length} frames', if (_ptz(r) != null) _ptz(r)!].join(' · '),
                             style: TextStyle(color: secondary, fontSize: 12)),
                       ]),
                     ),
@@ -195,9 +231,21 @@ class _RecordingsTabState extends State<RecordingsTab> {
 
 /// Plays a recording's frames in order (1 per second, as recorded).
 class _PlayerDialog extends StatefulWidget {
-  const _PlayerDialog({required this.frames, required this.title, required this.onDownload});
+  const _PlayerDialog({
+    required this.frames,
+    required this.title,
+    required this.location,
+    required this.startedAt,
+    required this.secondsPerFrame,
+    required this.onDownload,
+    this.ptz,
+  });
   final List<String> frames;
   final String title;
+  final String location;
+  final String? ptz;
+  final DateTime startedAt;
+  final double secondsPerFrame;
   final VoidCallback onDownload;
 
   @override
@@ -205,6 +253,20 @@ class _PlayerDialog extends StatefulWidget {
 }
 
 class _PlayerDialogState extends State<_PlayerDialog> {
+  static final _frameTime = DateFormat('MMM d, yyyy  hh:mm:ss a');
+  static const _stampStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 11.5,
+    fontWeight: FontWeight.w700,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  Widget _stamp(Widget child) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: .55), borderRadius: BorderRadius.circular(6)),
+        child: child,
+      );
+
   int _i = 0;
   bool _playing = true;
   Timer? _timer;
@@ -236,7 +298,7 @@ class _PlayerDialogState extends State<_PlayerDialog> {
     final primary = AppTheme.textPrimary(context);
     return PgGlassDialog(
       title: 'Recording',
-      subtitle: '${widget.title} · Camera 1',
+      subtitle: '${widget.location} · ${widget.title}',
       icon: Icons.videocam_outlined,
       maxWidth: 900,
       actions: [
@@ -257,7 +319,30 @@ class _PlayerDialogState extends State<_PlayerDialog> {
                 color: Colors.black,
                 child: AspectRatio(
                   aspectRatio: 4 / 3,
-                  child: Image.network(widget.frames[_i], fit: BoxFit.contain, gaplessPlayback: true),
+                  child: Stack(fit: StackFit.expand, children: [
+                    Image.network(widget.frames[_i], fit: BoxFit.contain, gaplessPlayback: true),
+                    // CCTV-style stamp: place on top, time of this frame below.
+                    Positioned(
+                      left: 10,
+                      top: 10,
+                      child: _stamp(Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.location_on_rounded, color: Colors.white, size: 13),
+                        const SizedBox(width: 4),
+                        Text('${widget.location} · Camera 1', style: _stampStyle),
+                      ])),
+                    ),
+                    Positioned(
+                      right: 10,
+                      bottom: 10,
+                      child: _stamp(Text(
+                        _frameTime.format(widget.startedAt.add(
+                            Duration(milliseconds: (_i * widget.secondsPerFrame * 1000).round()))),
+                        style: _stampStyle,
+                      )),
+                    ),
+                    if (widget.ptz != null)
+                      Positioned(left: 10, bottom: 10, child: _stamp(Text(widget.ptz!, style: _stampStyle))),
+                  ]),
                 ),
               ),
             ),

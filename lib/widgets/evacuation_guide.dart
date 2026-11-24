@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path; // latlong2 also has a Path class
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/indoor_locator.dart';
