@@ -116,7 +116,7 @@ class _NoticeCard extends StatelessWidget {
         PgNoticeKind.warning => (AppColors.amber, Icons.warning_amber_rounded),
         PgNoticeKind.error => (AppColors.red, Icons.error_outline),
         PgNoticeKind.fire => (AppColors.red, Icons.local_fire_department),
-        PgNoticeKind.intrusion => (const Color(0xFF7C3AED), Icons.sensor_door_outlined),
+        PgNoticeKind.intrusion => (AppColors.redDeep, Icons.sensor_door_outlined),
         PgNoticeKind.device => (const Color(0xFF3B82F6), Icons.developer_board_outlined),
         PgNoticeKind.info => (AppColors.orange, Icons.notifications_none_rounded),
       };

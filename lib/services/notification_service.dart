@@ -558,7 +558,7 @@ class NotificationService {
         visibility: NotificationVisibility.public,
         color: switch (kind) {
           PyroAlertKind.fire => const Color(0xFFDC2626),
-          PyroAlertKind.intrusion => const Color(0xFF7C3AED),
+          PyroAlertKind.intrusion => const Color(0xFFB91C1C), // AppColors.redDeep
           PyroAlertKind.deviceStatus => const Color(0xFF2563EB),
           _ => const Color(0xFFEA580C),
         },

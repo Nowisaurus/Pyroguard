@@ -930,7 +930,8 @@ class _IntrusionOverlay extends StatefulWidget {
 }
 
 class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerProviderStateMixin {
-  static const _violet = Color(0xFF7C3AED);
+  // PyroGuard palette: brand red for the alarm, orange accents, maroon backdrop.
+  static const _accent = AppColors.red;
   late final AnimationController _pulse =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
   bool _busy = false;
@@ -986,7 +987,7 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
 
     return Positioned.fill(
       child: Material(
-        color: const Color(0x99160A24),
+        color: AppColors.maroon.withValues(alpha: .62),
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -1002,9 +1003,9 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
                       decoration: BoxDecoration(
                         color: AppTheme.card(context).withValues(alpha: .95),
                         borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: _violet.withValues(alpha: .7), width: 1.5),
+                        border: Border.all(color: _accent.withValues(alpha: .7), width: 1.5),
                         boxShadow: [
-                          BoxShadow(color: _violet.withValues(alpha: .35), blurRadius: 36, spreadRadius: 2),
+                          BoxShadow(color: _accent.withValues(alpha: .35), blurRadius: 36, spreadRadius: 2),
                           BoxShadow(color: Colors.black.withValues(alpha: .25), blurRadius: 30, offset: const Offset(0, 12)),
                         ],
                       ),
@@ -1017,17 +1018,21 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
                               height: 72,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: _violet.withValues(alpha: .14),
-                                border: Border.all(color: _violet.withValues(alpha: .55), width: 2),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [AppColors.red, AppColors.orange],
+                                ),
+                                boxShadow: [BoxShadow(color: AppColors.red.withValues(alpha: .45), blurRadius: 22)],
                               ),
-                              child: const Icon(Icons.sensor_door_outlined, color: _violet, size: 36),
+                              child: const Icon(Icons.sensor_door_outlined, color: Colors.white, size: 34),
                             ),
                           ),
                         ),
                         const SizedBox(height: 12),
                         Text('INTRUSION DETECTED',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: AppTheme.statusForeground(context, _violet), fontSize: 20,
+                            style: TextStyle(color: AppTheme.statusForeground(context, _accent), fontSize: 20,
                                 fontWeight: FontWeight.w900, letterSpacing: .8)),
                         const SizedBox(height: 4),
                         Text('${e.label} was opened while the system is ARMED',
@@ -1037,9 +1042,9 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: _violet.withValues(alpha: .07),
+                            color: AppColors.orange.withValues(alpha: .07),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _violet.withValues(alpha: .25)),
+                            border: Border.all(color: AppColors.orange.withValues(alpha: .28)),
                           ),
                           child: Column(children: [
                             for (final (icon, label, value) in [
@@ -1051,7 +1056,7 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 3),
                                 child: Row(children: [
-                                  Icon(icon, size: 16, color: AppTheme.statusForeground(context, _violet)),
+                                  Icon(icon, size: 16, color: AppTheme.brandForeground(context)),
                                   const SizedBox(width: 8),
                                   SizedBox(
                                     width: 84,
@@ -1087,7 +1092,7 @@ class _IntrusionOverlayState extends State<_IntrusionOverlay> with SingleTickerP
                         const SizedBox(height: 14),
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _violet,
+                            backgroundColor: AppColors.redDeep,
                             foregroundColor: Colors.white,
                             minimumSize: const Size.fromHeight(46),
                           ),
