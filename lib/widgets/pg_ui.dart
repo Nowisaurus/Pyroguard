@@ -23,7 +23,9 @@ class PgCard extends StatelessWidget {
           light: !AppTheme.isDark(context),
           border: accent?.withValues(alpha: .55),
         ),
-        child: child,
+        // Own transparent Material so ListTiles / InkWells inside the glass
+        // card paint their ripples here (no "ListTile ... may be invisible").
+        child: Material(type: MaterialType.transparency, child: child),
       );
 }
 

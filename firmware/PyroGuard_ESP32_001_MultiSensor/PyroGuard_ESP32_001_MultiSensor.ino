@@ -458,6 +458,15 @@ bool  mq2ModeSet[2] = {false, false};
 bool  mq2DigitalMode[2] = {false, false};  // true = DO wired to the GPIO
 bool  mq2NoSignal[2] = {false, false};     // AO stuck at 0 V (wire / 5 V supply)
 unsigned long mq2SignalSince[2] = {0, 0};  // when a "no signal" sensor got a real voltage
+// 2026-11-24 loose-wire guard: a real gas rise never drops back to 0 V, so a
+// reading that keeps falling to ~0 V is a wiring fault, never smoke.
+#define MQ2_RELEARN_STEADY_MS 3000UL   // steady real voltage after "no signal" -> learn clean air
+#define MQ2_DROPOUT_WINDOW_MS 60000UL  // dropouts counted per minute
+#define MQ2_DROPOUT_FAULT     3        // this many 0 V dropouts per minute = LOOSE WIRE
+unsigned long mq2DropoutWindow[2] = {0, 0};
+uint8_t mq2Dropouts[2] = {0, 0};
+bool mq2LooseWire[2] = {false, false};
+bool mq2WasSignal[2] = {false, false};
 
 
 void printDashboard(bool force);
@@ -714,21 +723,51 @@ int mq2VirtualDO(uint8_t idx, uint8_t pin, bool warm) {
     else if (mq2Active[idx] && mq2Ema[idx] > MQ2_DO_HIGH_MV) mq2Active[idx] = false;
     return mq2Active[idx] ? LOW : HIGH;
   }
-  // Learned while nothing was connected (~0 V) and now a steady real voltage
-  // appears for 10 s: the sensor was just wired -> learn clean air again.
-  if (mq2Base[idx] < MQ2_NO_SIGNAL_MV && mq2Ema[idx] >= MQ2_NO_SIGNAL_MV) {
-    if (mq2SignalSince[idx] == 0) mq2SignalSince[idx] = millis();
-    else if (millis() - mq2SignalSince[idx] >= 10000UL) mq2Relearn(idx, "sensor connected after boot");
-  } else {
-    mq2SignalSince[idx] = 0;
+  const unsigned long nowMs = millis();
+  const bool signalNow = mq2Ema[idx] >= MQ2_NO_SIGNAL_MV;
+  // Loose-wire guard: count drops from a real voltage to ~0 V.
+  if (mq2DropoutWindow[idx] == 0 || nowMs - mq2DropoutWindow[idx] >= MQ2_DROPOUT_WINDOW_MS) {
+    const bool wasLoose = mq2LooseWire[idx];
+    mq2LooseWire[idx] = mq2Dropouts[idx] >= MQ2_DROPOUT_FAULT;
+    if (mq2LooseWire[idx] && !wasLoose)
+      Serial.printf("[SMOKE] MQ-2 #%u LOOSE WIRE: signal dropped to 0 V %u times in 1 min -> FAULT, not smoke\n",
+                    idx + 1, mq2Dropouts[idx]);
+    else if (!mq2LooseWire[idx] && wasLoose)
+      Serial.printf("[SMOKE] MQ-2 #%u signal stable again\n", idx + 1);
+    mq2Dropouts[idx] = 0;
+    mq2DropoutWindow[idx] = nowMs;
+  }
+  if (mq2WasSignal[idx] && !signalNow && mq2Dropouts[idx] < 255) mq2Dropouts[idx]++;
+  mq2WasSignal[idx] = signalNow;
+
+  // Clean air was learned while nothing was connected (~0 V): there is no
+  // valid baseline, so NEVER report smoke. As soon as a real voltage has
+  // been steady for 3 s, learn clean air from it.
+  if (mq2Base[idx] < MQ2_NO_SIGNAL_MV) {
+    mq2Active[idx] = false;
+    if (signalNow) {
+      if (mq2SignalSince[idx] == 0) mq2SignalSince[idx] = nowMs;
+      else if (nowMs - mq2SignalSince[idx] >= MQ2_RELEARN_STEADY_MS) mq2Relearn(idx, "sensor signal appeared");
+    } else {
+      mq2SignalSince[idx] = 0;
+    }
+    mq2NoSignal[idx] = true;
+    return HIGH;
+  }
+  mq2SignalSince[idx] = 0;
+  // Signal fell to ~0 V: the wire/supply dropped out. Gas only RAISES the
+  // AO voltage, so this is never smoke - clear it and report NO SIGNAL.
+  if (!signalNow || mq2LooseWire[idx]) {
+    mq2Active[idx] = false;
+    mq2NoSignal[idx] = true;
+    return HIGH;
   }
   const float rise = mq2Ema[idx] - mq2Base[idx];
   if (!mq2Active[idx] && rise >= MQ2_TRIGGER_MV)      mq2Active[idx] = true;
   else if (mq2Active[idx] && rise < MQ2_RELEASE_MV)   mq2Active[idx] = false;
   if (!mq2Active[idx] && rise < MQ2_RELEASE_MV / 2)   // slow clean-air drift only
     mq2Base[idx] += MQ2_TRACK_RATE * (mq2Ema[idx] - mq2Base[idx]);
-  // Still ~0 V and no gas rise: the sensor signal is not reaching the ESP32.
-  mq2NoSignal[idx] = !mq2Active[idx] && mq2Ema[idx] < MQ2_NO_SIGNAL_MV;
+  mq2NoSignal[idx] = false;
   return mq2Active[idx] ? LOW : HIGH;
 }
 
