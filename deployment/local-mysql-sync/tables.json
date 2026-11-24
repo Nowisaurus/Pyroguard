@@ -178,5 +178,47 @@
     "key": "id",
     "append_only": true,
     "since_column": "archived_at"
+  },
+  {
+    "source": "pyroguard_area_incidents",
+    "target": "pyroguard_area_incidents",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_sensor_maintenance",
+    "target": "pyroguard_sensor_maintenance",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_bfp_report_emails",
+    "target": "pyroguard_bfp_report_emails",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_incident_reports",
+    "target": "pyroguard_incident_reports",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_home_layout",
+    "target": "pyroguard_home_layout",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_cost_catalog",
+    "target": "pyroguard_cost_catalog",
+    "key": "id"
+  },
+  {
+    "source": "pyroguard_change_log",
+    "target": "pyroguard_change_log",
+    "key": "id",
+    "append_only": true,
+    "since_column": "changed_at"
+  },
+  {
+    "source": "pyroguard_sensor_health_log",
+    "target": "pyroguard_sensor_health_log",
+    "key": "id"
   }
 ]

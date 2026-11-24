@@ -81,10 +81,10 @@ Future<void> sendIncidentToBfp(BuildContext context, HomeIncident inc) async {
 void showIncidentSheet(BuildContext context, HomeIncident inc) {
   final temps = inc.readings.map((r) => (r['temperature'] as num?)?.toDouble()).whereType<double>();
   final smokes = inc.readings.map((r) => (r['smoke_raw'] as num?)?.toDouble()).whereType<double>();
-  showModalBottomSheet<void>(
+  // Centered card (same glass style as the other dialogs), not a bottom sheet.
+  showDialog<void>(
     context: context,
-    showDragHandle: true,
-    backgroundColor: AppTheme.isDark(context) ? AppColors.darkCard : Colors.white,
+    barrierColor: Colors.black.withValues(alpha: .35),
     builder: (ctx) {
       final primary = AppTheme.textPrimary(ctx);
       final secondary = AppTheme.textSecondary(ctx);
@@ -95,9 +95,18 @@ void showIncidentSheet(BuildContext context, HomeIncident inc) {
               Expanded(child: Text(v, style: TextStyle(color: primary, fontSize: 13, fontWeight: FontWeight.w600))),
             ]),
           );
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      return Dialog(
+        backgroundColor: AppTheme.isDark(ctx) ? AppColors.darkCard : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: AppColors.orange.withValues(alpha: .30)),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 22),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
               Expanded(
@@ -105,6 +114,13 @@ void showIncidentSheet(BuildContext context, HomeIncident inc) {
                     style: TextStyle(color: primary, fontSize: 16, fontWeight: FontWeight.w800)),
               ),
               PgBadge(inc.type, color: incidentColor(inc.type)),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Close',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => Navigator.pop(ctx),
+                icon: Icon(Icons.close_rounded, color: secondary, size: 20),
+              ),
             ]),
             const SizedBox(height: 12),
             row('Report number', inc.reportNumber),
@@ -138,6 +154,7 @@ void showIncidentSheet(BuildContext context, HomeIncident inc) {
               ),
             ]),
           ]),
+          ),
         ),
       );
     },

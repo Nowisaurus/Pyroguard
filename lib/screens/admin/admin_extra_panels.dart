@@ -47,17 +47,17 @@ class _AdminCostCatalogPanelState extends State<AdminCostCatalogPanel> {
       final list = await CostCatalog.load();
       if (mounted) {
         setState(() {
-          _items = list;
-          _loading = false;
-          _error = null;
-        });
+        _items = list;
+        _loading = false;
+        _error = null;
+      });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
-          _error = 'Could not load the price list: $e';
-        });
+        _loading = false;
+        _error = 'Could not load the price list: $e';
+      });
       }
     }
   }
@@ -289,9 +289,9 @@ class _AdminSensorHealthPanelState extends State<AdminSensorHealthPanel> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
-          _error = 'Could not load sensor health: $e';
-        });
+        _loading = false;
+        _error = 'Could not load sensor health: $e';
+      });
       }
     }
   }
@@ -585,9 +585,9 @@ class _AdminChangeLogPanelState extends State<AdminChangeLogPanel> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
-          _error = 'Could not load changes: $e';
-        });
+        _loading = false;
+        _error = 'Could not load changes: $e';
+      });
       }
     }
   }

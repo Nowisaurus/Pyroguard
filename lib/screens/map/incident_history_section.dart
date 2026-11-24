@@ -375,11 +375,9 @@ class _IncidentHistorySectionState extends State<IncidentHistorySection> {
   /// Full details of one incident in a bottom sheet.
   void _showDetails(_HistoryItem i) {
     final c = _typeColor(i.type);
-    showModalBottomSheet<void>(
+    showDialog<void>(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.isDark(context) ? AppColors.darkCard : Colors.white,
+      barrierColor: Colors.black.withValues(alpha: .35),
       builder: (ctx) {
         final primary = AppTheme.textPrimary(ctx);
         final secondary = AppTheme.textSecondary(ctx);
@@ -393,11 +391,18 @@ class _IncidentHistorySectionState extends State<IncidentHistorySection> {
                 ),
               ]),
             );
-        return SafeArea(
+        return Dialog(
+          backgroundColor: AppTheme.isDark(ctx) ? AppColors.darkCard : Colors.white,
+          surfaceTintColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(color: AppColors.orange.withValues(alpha: .30)),
+          ),
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * .8),
+            constraints: BoxConstraints(maxWidth: 560, maxHeight: MediaQuery.of(ctx).size.height * .85),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 22),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Row(children: [
                   PgDot(c, size: 12),

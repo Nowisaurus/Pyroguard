@@ -2,9 +2,10 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart' hide Path;
+import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/indoor_locator.dart';
 import '../services/room_sensor_service.dart';
 import '../theme.dart';
 
@@ -263,7 +264,7 @@ List<String> evacuationSteps(List<LayoutItem> items, Map<String, int> hazard, Ma
   }
   final yourRoute = you == null ? null : routes[you.key];
   if (you != null && yourRoute != null) {
-    final inFire = fire.any((f) => f.key == you!.key);
+    final inFire = fire.any((f) => f.key == you?.key);
     if (fire.isNotEmpty) {
       steps.add('${fire.any((f) => hazard[f.key] == 2) ? 'FIRE' : 'SMOKE / FLAME WARNING'} in the '
           '${fire.map((f) => f.label).join(' and ')}.');
@@ -463,7 +464,7 @@ class _PlanPainter extends CustomPainter {
       final mine = youRoom == null || route.room.key == youRoom;
       if (youRoom != null && !mine) continue;
       final pts = route.path.map(px).toList();
-      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
+      final path = ui.Path()..moveTo(pts.first.dx, pts.first.dy);
       for (final p in pts.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }
@@ -548,7 +549,7 @@ class _PlanPainter extends CustomPainter {
     final dir = Offset(math.cos(-a), math.sin(-a));
     final left = Offset(math.cos(-a + 2.6), math.sin(-a + 2.6));
     final right = Offset(math.cos(-a - 2.6), math.sin(-a - 2.6));
-    final path = Path()
+    final path = ui.Path()
       ..moveTo(p.dx + dir.dx * 3, p.dy + dir.dy * 3)
       ..lineTo(p.dx + left.dx * len, p.dy + left.dy * len)
       ..lineTo(p.dx + right.dx * len, p.dy + right.dy * len)
@@ -612,7 +613,10 @@ class _EvacuationGuideCardState extends State<EvacuationGuideCard> {
     RoomSensorService.instance.addListener(_changed);
     evacuationYouRoom.addListener(_changed);
     loadHomeLayout().then((d) {
-      if (mounted) setState(() => _data = d);
+      if (!mounted) return;
+      setState(() => _data = d);
+      // Live GPS puts the user on the plan automatically.
+      IndoorLocator.instance.start(homeLat: d.homePoint?.latitude, homeLng: d.homePoint?.longitude, items: d.items);
     });
   }
 
@@ -648,7 +652,7 @@ class _EvacuationGuideCardState extends State<EvacuationGuideCard> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Evacuation guide', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppTheme.textPrimary(context))),
       const SizedBox(height: 6),
-      WhereAreYouChips(items: data.items),
+      LiveLocationBar(items: data.items),
       const SizedBox(height: 8),
       ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -657,7 +661,7 @@ class _EvacuationGuideCardState extends State<EvacuationGuideCard> {
           hazard: hazard,
           youRoom: you,
           onTapItem: (i) {
-            if (i.kind == 'room') evacuationYouRoom.value = i.key;
+            if (i.kind == 'room') IndoorLocator.instance.userPicked(i.key);
           },
         ),
       ),
@@ -683,8 +687,8 @@ class _EvacuationGuideCardState extends State<EvacuationGuideCard> {
         padding: const EdgeInsets.only(top: 4),
         child: Text(
           you == null
-              ? 'Tap the room you are in (on the plan or above) to see your own way out.'
-              : 'Tap another room if you moved.',
+              ? 'Your room is found from your phone\'s location. If it is not shown, tap the room you are in.'
+              : 'Wrong room? Tap the right one once and the app learns it.',
           style: TextStyle(fontSize: 11, color: secondary),
         ),
       ),
