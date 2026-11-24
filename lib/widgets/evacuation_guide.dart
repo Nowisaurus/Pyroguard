@@ -85,7 +85,7 @@ const Map<String, List<String>> kRoomSensors = {
 /// (scaled from the car in the drawing, about 4.3 m long).
 const kFloorPlanAsset = 'assets/images/floorplan.png';
 const kPlanOffsetM = Offset(1.10, 1.17);
-const kPlanSizeM = Size(9.70, 11.09);
+const kPlanSizeM = Size(9.70, 13.60); // full drawing incl. garage and garden
 
 /// The house from the floor plan drawing (inside measurements, meters):
 /// open kitchen / dining / sala with the entrance, plus the walled bedroom
@@ -264,7 +264,7 @@ List<String> evacuationSteps(List<LayoutItem> items, Map<String, int> hazard, Ma
   }
   final yourRoute = you == null ? null : routes[you.key];
   if (you != null && yourRoute != null) {
-    final inFire = fire.any((f) => f.key == you?.key);
+    final inFire = fire.any((f) => f.key == you.key);
     if (fire.isNotEmpty) {
       steps.add('${fire.any((f) => hazard[f.key] == 2) ? 'FIRE' : 'SMOKE / FLAME WARNING'} in the '
           '${fire.map((f) => f.label).join(' and ')}.');
@@ -348,8 +348,17 @@ class _EvacuationPlanViewState extends State<EvacuationPlanView> with SingleTick
   Widget build(BuildContext context) {
     final items = widget.items;
     final routes = planRoutes(items, widget.hazard);
-    return AspectRatio(
-      aspectRatio: kPlanSizeM.width / kPlanSizeM.height,
+    // Whole drawing always visible: never wider than 560 px and never taller
+    // than about 70% of the screen, centered in its panel.
+    final aspect = kPlanSizeM.width / kPlanSizeM.height;
+    final maxW = [560.0, MediaQuery.sizeOf(context).height * .70 * aspect].reduce((a, b) => a < b ? a : b);
+    return Center(
+      child: ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxW),
+      child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: AspectRatio(
+      aspectRatio: aspect,
       child: LayoutBuilder(builder: (context, c) {
         final scale = c.maxWidth / kPlanSizeM.width;
         Offset toM(Offset px) => px / scale - kPlanOffsetM;
@@ -386,6 +395,9 @@ class _EvacuationPlanViewState extends State<EvacuationPlanView> with SingleTick
           ]),
         );
       }),
+      ),
+      ),
+      ),
     );
   }
 }
@@ -464,7 +476,7 @@ class _PlanPainter extends CustomPainter {
       final mine = youRoom == null || route.room.key == youRoom;
       if (youRoom != null && !mine) continue;
       final pts = route.path.map(px).toList();
-      final path = ui.Path()..moveTo(pts.first.dx, pts.first.dy);
+      final path = Path()..moveTo(pts.first.dx, pts.first.dy);
       for (final p in pts.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }
@@ -549,7 +561,7 @@ class _PlanPainter extends CustomPainter {
     final dir = Offset(math.cos(-a), math.sin(-a));
     final left = Offset(math.cos(-a + 2.6), math.sin(-a + 2.6));
     final right = Offset(math.cos(-a - 2.6), math.sin(-a - 2.6));
-    final path = ui.Path()
+    final path = Path()
       ..moveTo(p.dx + dir.dx * 3, p.dy + dir.dy * 3)
       ..lineTo(p.dx + left.dx * len, p.dy + left.dy * len)
       ..lineTo(p.dx + right.dx * len, p.dy + right.dy * len)

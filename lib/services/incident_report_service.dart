@@ -617,7 +617,7 @@ class IncidentReportService {
   /// The home's floor plan drawing with the incident room marked in red and
   /// the exits in green.
   static Future<pw.Widget> _floorPlan(List<LayoutItem> items, HomeIncident inc) async {
-    const w = 200.0;
+    const w = 170.0; // full drawing (incl. garage) stays the same height as before
     final k = w / kPlanSizeM.width; // points per meter
     final h = kPlanSizeM.height * k;
     pw.MemoryImage? plan;

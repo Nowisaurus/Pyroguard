@@ -2,6 +2,11 @@
 // ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
 
 import 'dart:html';
+import 'dart:js_interop';
+
+/// window.focus() (not exposed on dart:html's Window type).
+@JS('window.focus')
+external void _focusWindow();
 
 bool webAlertsSupported() {
   try {
@@ -52,7 +57,7 @@ bool webShowAlert({
     // opens the page the alert is about.
     n.onClick.listen((_) {
       try {
-        window.focus();
+        _focusWindow();
       } catch (_) {}
       n.close();
       onClick?.call();
@@ -63,8 +68,4 @@ bool webShowAlert({
     // the in-app banner still appears there.
     return false;
   }
-}
-
-extension on Window {
-  void focus() {}
 }
