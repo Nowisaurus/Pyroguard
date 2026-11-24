@@ -83,6 +83,11 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // "View" on a notification (in-app or phone) opens its page.
+    NotificationService.onOpenRoute = (route) {
+      if (mounted) _go(route);
+    };
+    WidgetsBinding.instance.addPostFrameCallback((_) => NotificationService.openPendingRoute());
     AdminService.instance.addListener(_onAdminChanged);
     AdminService.instance.refresh();
     HistoricalService.instance.retryPendingSync();
@@ -154,6 +159,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    NotificationService.onOpenRoute = null;
     _dualSyncRetryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (!_adminIdentity) {
@@ -205,9 +211,36 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final r = SensorService.instance.latest;
     if (!mounted) return;
     if (r == null) { setState(() {}); return; }
+    final noticeKey = r.incidentType;
+    final quiet = _lastWarningNoticeAt != null &&
+        DateTime.now().difference(_lastWarningNoticeAt!) < const Duration(minutes: 5) &&
+        noticeKey == _lastWarningNoticeId;
     // The old single-reading warning pop-up is replaced by the verified
     // warning banner (two consecutive room readings), to avoid false alarms.
+    const legacyWarningSnackBar = false;
+    if (legacyWarningSnackBar && SensorService.instance.warningActive && !SensorService.instance.alarmActive && !quiet) {
+      _lastWarningNoticeId = noticeKey;
+      _lastWarningNoticeAt = DateTime.now();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: const Color(0xFF92400E),
+        duration: const Duration(seconds: 7),
+        content: Row(children: [
+          const Icon(Icons.warning_amber, color: Colors.white),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+            '${r.incidentType}. Not a confirmed fire - check the area.',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          )),
+        ]),
+        action: SnackBarAction(label: 'Dismiss', textColor: Colors.white,
+            onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar()),
+      ));
+    }
     setState(() {});
+  }
+
+  void _go(String path) {
+    context.go(path);
   }
 
   Future<void> _logout() async {
@@ -222,10 +255,6 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     }
     await Supabase.instance.client.auth.signOut();
     if (mounted) context.go('/');
-  }
-
-  void _go(String path) {
-    context.go(path);
   }
 
   @override
@@ -304,7 +333,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
                   ),
                 if (warningPopup)
                   _WarningOverlay(
-                    warning: warning,
+                    warning: warning!,
                     onOpenMap: () {
                       setState(() => _dismissedWarningEpisode = warningEpisode);
                       _go('/map');
